@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# H2 (lab proposals/0025 §5.3): owner-requested only. The 200-switch test arrives with H-4/H-12.
+# Pi soaks, H-f1 and H-f2 are the owner's device runs; their numbers go to lab facts/.
+name: H2
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  switch200:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder until the switch test exists
+        run: |
+          if [ -d tests/integration ]; then echo "H-4 must replace this step"; exit 1; fi
+          echo "No integration suite yet (H-4)."
