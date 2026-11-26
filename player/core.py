@@ -5,18 +5,19 @@ It owns the state document, the live values, the switch arbiter and the engine s
 and it answers Player API commands. It is transport-free: `player/server.py` serves it over
 HTTP and SSE. The engine is reached only through an adapter (player/engine.py).
 
-H-1 scope: the API surface, the state document, composition, a single-pending arbiter and
-the basic supervisor (backoff, hang kill). H-3 adds the Program Change debounce, state files
-and atomic saves, and the full §2.2–§2.4 test set.
+H-1 built the API surface, the state document, composition and the arbiter. H-3 adds the
+Program Change debounce, state files and atomic saves (player/state.py), and drains a pending
+switch after a refused load. The full §2.2–§2.4 tests are tests/test_core.py.
 """
 from __future__ import annotations
 
 import asyncio
 import copy
+import logging
 import time
 from typing import Any, Callable
 
-from . import API_VERSION, VERSION, bundle as B, taper
+from . import API_VERSION, VERSION, bundle as B, state as S, taper
 from .catalogue import Catalogue
 from .check import check as check_bundle, ERROR, WARNING
 from .engine import AdapterFactory
@@ -29,6 +30,9 @@ HELLO_TIMEOUT = 10.0
 VALUES_HZ = 30
 STATUS_HZ = 4
 QUEUE_MAX = 256
+SAVE_DELAY = 2.0  # values save 2 s after the last change (0025 §2.3)
+DEBOUNCE_MS = 150  # Program Change and controller switches (0025 §2.4)
+log = logging.getLogger("player")
 
 
 class CommandError(Exception):
@@ -58,7 +62,8 @@ class Subscriber:
 
 class PlayerCore:
     def __init__(self, bundles: dict[str, B.Bundle], adapter_factory: AdapterFactory, *,
-                 fake: bool = False, clock: Callable[[], float] = time.monotonic, control_port: int = 0):
+                 fake: bool = False, clock: Callable[[], float] = time.monotonic, control_port: int = 0,
+                 store: S.StateStore | None = None, initial: dict | None = None):
         if not bundles:
             raise ValueError("at least one bundle is needed (an empty set is H-5's boot case)")
         self.bundles = bundles
@@ -91,6 +96,14 @@ class PlayerCore:
         self._inflight: int | None = None
         self._check = {}
         self.control_port = control_port
+        self.store = store
+        self.initial = initial
+        self._save_handle: asyncio.TimerHandle | None = None
+        self._good_saved = False
+        self._killed = None  # the engine the watchdog killed (kill once per engine)
+        self._debounce: asyncio.TimerHandle | None = None
+        self._debounce_target: int | None = None
+        self._pc_ignored: dict[int, int] = {}
         self._recheck()
 
     # ================================================================ lifecycle
@@ -98,14 +111,29 @@ class PlayerCore:
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
         self._tasks = [loop.create_task(self._ticker()), loop.create_task(self._watchdog())]
+        first = 0
+        init = self.initial
+        if init and init.get("bundle") in self.bundles:
+            self.bundle = self.bundles[init["bundle"]]
+            self._recheck()
+            self.values = {i: v for i, v in S.values_of(init).items() if i < len(self.bundle.entries)}
+            if isinstance(init.get("index"), int) and init["index"] < len(self.bundle.entries):
+                first = init["index"]
         await self._start_engine()
         if self.bundle.entries and self.current["index"] is None:
-            await self.select(0)
+            try:
+                await self.select(first)
+            except CommandError as e:
+                log.warning("boot load of entry %s failed: %s", first, e.message)
 
     async def close(self) -> None:
         self._stopping = True
         if self._restart_handle:
             self._restart_handle.cancel()
+        if self._debounce:
+            self._debounce.cancel()
+            self._debounce = None
+        self.save_now()
         for t in self._tasks:
             t.cancel()
         if self.engine:
@@ -124,6 +152,10 @@ class PlayerCore:
             hello = await asyncio.wait_for(eng.start(), HELLO_TIMEOUT)
         except Exception:  # noqa: BLE001 - a failed start is a crash (0025 §2.2)
             self._on_exit(eng, None, "start-failed")
+            try:
+                await eng.kill()
+            except Exception:  # noqa: BLE001
+                pass
             return
         if eng is not self.engine:
             return
@@ -195,10 +227,10 @@ class PlayerCore:
             await asyncio.sleep(0.1)
             if self.engine is None or self._last_status is None:
                 continue
-            if self.clock() - self._last_status > HANG_GAP:
+            if self.clock() - self._last_status > HANG_GAP and self._killed is not self.engine:
                 self.engine_info["state"] = "stalled"
                 self._changed()
-                eng = self.engine
+                eng = self._killed = self.engine
                 await eng.kill()
 
     async def _ticker(self) -> None:
@@ -263,7 +295,8 @@ class PlayerCore:
                         for s in (e.scripts if e else [])],
             "midi": {"devices": copy.deepcopy(self.midi_devices)},
             "osc": {"controlPort": self.control_port, "routes": copy.deepcopy(self.osc_status.get("routes", []))},
-            "warnings": list(self.warnings),
+            "warnings": list(self.warnings) + [
+                f"Program Change {n} has no setlist entry (ignored {k}x)" for n, k in sorted(self._pc_ignored.items())],
         }
 
     def status_doc(self) -> dict:
@@ -394,11 +427,18 @@ class PlayerCore:
             self.current["pending"] = index
             self._changed()
             return {"index": index, "queued": True}
-        await self._load(index, reason="select")
-        while self.current["pending"] is not None:
+        target: int | None = index
+        err: CommandError | None = None
+        while target is not None:
+            try:
+                await self._load(target, reason="select")
+                err = None
+            except CommandError as ce:
+                err = ce  # a refusal keeps the previous patch; a pending target still runs
             nxt, self.current["pending"] = self.current["pending"], None
-            if nxt != self.current["index"]:
-                await self._load(nxt, reason="select")
+            target = nxt if nxt is not None and nxt != self.current["index"] else None
+        if err is not None:
+            raise err
         return {"index": self.current["index"]}
 
     def _requested_index(self) -> int:
@@ -443,12 +483,88 @@ class PlayerCore:
             self.current.update(index=index, error=None)
             self.patch = self.bundle.load_patch(e)
             self._refresh_warnings()
+            self.save_now()  # every switch saves (0025 §2.3)
+            if not self._good_saved and self.store:
+                self._good_saved = True
+                self._try(self.store.save_good, self._state_file_doc())
         else:
             # A refused loadGraph keeps the previous patch (the engine leaves its graph untouched).
             self.current["error"] = f"{reply.get('code')}: {reply.get('message')}"
         self._changed()
         if not reply.get("ok"):
             raise CommandError("engine", reply.get("message", "refused"), reply.get("code"))
+
+    # ================================================================ saves (0025 §2.3)
+
+    def _state_file_doc(self) -> dict:
+        return S.state_doc(self.bundle.name, self.current["index"], self.values)
+
+    def _try(self, fn, *a) -> None:
+        try:
+            fn(*a)
+        except (OSError, ValueError, TypeError) as e:
+            log.error("state save failed: %s", e)
+
+    def _save_later(self) -> None:
+        if not self.store:
+            return
+        if self._save_handle:
+            self._save_handle.cancel()
+        self._save_handle = asyncio.get_running_loop().call_later(SAVE_DELAY, self.save_now)
+
+    def save_now(self) -> None:
+        if self._save_handle:
+            self._save_handle.cancel()
+            self._save_handle = None
+        if self.store and self.current["index"] is not None:
+            self._try(self.store.save, self._state_file_doc())
+
+    # ================================================================ Program Change and debounce (0025 §2.4)
+
+    def debounce_ms(self) -> int:
+        pc = self.bundle.config.get("programChange")
+        v = pc.get("debounceMs", DEBOUNCE_MS) if isinstance(pc, dict) else DEBOUNCE_MS
+        return v if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 1000 else DEBOUNCE_MS
+
+    def program_change(self, program: int) -> None:
+        """PC n selects the entry with `program` n, else index n (0025 §2.7), after the debounce."""
+        index = self.bundle.program_map().get(program)
+        if index is None:
+            self._pc_ignored[program] = self._pc_ignored.get(program, 0) + 1
+            self._changed()
+            return
+        self.debounced_select(index)
+
+    def debounced_select(self, index: int) -> None:
+        """Each event restarts the timer; when it fires, the last target wins and goes to the arbiter."""
+        if not 0 <= index < len(self.bundle.entries):
+            return
+        self._debounce_target = index
+        if self._debounce:
+            self._debounce.cancel()
+        loop = asyncio.get_running_loop()
+        self._debounce = loop.call_later(self.debounce_ms() / 1000, self._fire_debounce)
+
+    def debounced_step(self, delta: int) -> None:
+        n = len(self.bundle.entries)
+        if n == 0:
+            return
+        base = self._debounce_target if self._debounce is not None else self._requested_index()
+        self.debounced_select((base + delta) % n if base is not None and base >= 0 else 0)
+
+    def _fire_debounce(self) -> None:
+        self._debounce = None
+        target, self._debounce_target = self._debounce_target, None
+        if target is None or self._stopping:
+            return
+
+        async def go():
+            try:
+                await self.select(target)
+            except CommandError as e:
+                log.warning("debounced switch to %s failed: %s", target, e.message)
+
+        asyncio.get_running_loop().create_task(go())
 
     def _refresh_warnings(self) -> None:
         self.warnings = [f"control {c['id']}: target is not in the loaded patch" for c in self._controls()
@@ -521,6 +637,7 @@ class PlayerCore:
         # script values are stored here and delivered by the runner (H-11).
         self.values.setdefault(self.current["index"], {})[r["key"]] = value
         self._dirty_values[r["key"]] = {"value": value, "norm": taper.value_to_norm(r["meta"], value)}
+        self._save_later()
 
     async def cmd_reset(self, cmd: dict) -> dict:
         live = self.values.setdefault(self.current["index"], {})

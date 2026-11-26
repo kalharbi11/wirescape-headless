@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """The engine adapter interface the Player core talks to (lab proposals/0025 §2.1, §2.6).
 
-Two adapters implement it: `FakeEngine` (player/fake_engine.py, H-1) and the real
-`wirescape-engine` stdio NDJSON client (H-3/H-4). The core never knows which it has.
+Two adapters implement it: `FakeEngine` (player/fake_engine.py, H-1) and `EngineProcess`
+(player/engine_proc.py, H-3), the real `wirescape-engine` stdio NDJSON client. H-4 runs it
+against the engine built at LAB_PIN. The core never knows which it has.
 Messages are lab protocol v0 objects (`docs/specs/ENGINE_PROTOCOL.md` at LAB_PIN).
 """
 from __future__ import annotations
