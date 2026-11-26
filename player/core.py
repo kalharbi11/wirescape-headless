@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import pathlib
 import time
 from typing import Any, Callable
 
@@ -33,6 +34,7 @@ QUEUE_MAX = 256
 SAVE_DELAY = 2.0  # values save 2 s after the last change (0025 §2.3)
 DEBOUNCE_MS = 150  # Program Change and controller switches (0025 §2.4)
 log = logging.getLogger("player")
+NO_BUNDLE = "no bundle installed: the engine runs with no patch"
 
 
 class CommandError(Exception):
@@ -64,15 +66,15 @@ class PlayerCore:
     def __init__(self, bundles: dict[str, B.Bundle], adapter_factory: AdapterFactory, *,
                  fake: bool = False, clock: Callable[[], float] = time.monotonic, control_port: int = 0,
                  store: S.StateStore | None = None, initial: dict | None = None):
-        if not bundles:
-            raise ValueError("at least one bundle is needed (an empty set is H-5's boot case)")
         self.bundles = bundles
         self.factory = adapter_factory
         self.fake = fake
         self.clock = clock
         self.started_at = clock()
         self.rev = 0
-        self.bundle = next(iter(bundles.values()))
+        # No bundle installed: the engine runs with no patch and the state says so (0025 §2.3).
+        self.bundle = next(iter(bundles.values())) if bundles else B.Bundle(
+            pathlib.Path("."), "", "", {"format": B.FORMAT, "version": B.VERSION, "setlist": []}, False)
         self.catalogue: Catalogue | None = None
         self.engine = None
         self.engine_info: dict = {"state": "stopped", "restarts": 0, "lastExit": None, "audio": None,
@@ -295,7 +297,7 @@ class PlayerCore:
                         for s in (e.scripts if e else [])],
             "midi": {"devices": copy.deepcopy(self.midi_devices)},
             "osc": {"controlPort": self.control_port, "routes": copy.deepcopy(self.osc_status.get("routes", []))},
-            "warnings": list(self.warnings) + [
+            "warnings": ([NO_BUNDLE] if not self.bundles else []) + list(self.warnings) + [
                 f"Program Change {n} has no setlist entry (ignored {k}x)" for n, k in sorted(self._pc_ignored.items())],
         }
 
@@ -722,6 +724,9 @@ class PlayerCore:
         return {"name": b.name, "findings": [f.__dict__ for f in findings]}
 
     def _recheck(self) -> None:
+        if not self.bundles:
+            self._check = {"ok": True, "errors": 0, "warnings": 0}
+            return
         try:
             findings = check_bundle(self.bundle, self.catalogue or Catalogue.load())
         except OSError:

@@ -6,9 +6,9 @@ import sys
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("-h", "--help"):
-        print(__doc__.strip() + "\n  run     the Player with the real engine (H-3/H-4)\n"
+        print(__doc__.strip() + "\n  run     the Player with the real engine\n"
               "  fake    the Player with the fake engine\n  check   check a bundle\n"
-              "  install install a bundle atomically (H-5)")
+              "  install install a bundle atomically")
         return 0 if argv else 2
     cmd, rest = argv[0], argv[1:]
     if cmd == "check":
@@ -17,10 +17,12 @@ def main(argv=None) -> int:
     if cmd == "fake":
         from .server import main_fake
         return main_fake(rest)
-    if cmd in ("run", "install"):
-        print(f"python -m player {cmd}: not implemented yet ({'H-3/H-4' if cmd == 'run' else 'H-5'})",
-              file=sys.stderr)
-        return 2
+    if cmd == "run":
+        from .run import main as m
+        return m(rest)
+    if cmd == "install":
+        from .install import main as m
+        return m(rest)
     print(f"unknown command {cmd!r}", file=sys.stderr)
     return 2
 
