@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 # Player requirements (owner, 2026-11-26)
 
-Source: lab `docs/context/fable/01_OWNER_WANTS.md` §B.2–B.3. Fable design run 2 turns these into the
+Source: lab `docs/context/planner/01_OWNER_WANTS.md` §B.2–B.3. Planner run 2 (`claude-planner`) turns these into the
 design; this file lists *what*, not *how*.
 
 ## Functions

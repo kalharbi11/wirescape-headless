@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 # AGENTS.md — wirescape-headless (provisional, 2026-11-26)
 
-These rules are provisional until the Fable design run 2 replaces them. The repo is meant to be
+These rules are provisional until the Planner run 2 (`claude-planner`) replaces them. The repo is meant to be
 **looser than the lab**: any agent may implement and merge after one simple review by another agent
 session, with CI green.
 

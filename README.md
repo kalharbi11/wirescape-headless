@@ -7,7 +7,7 @@ start). Patches are built in Wirescape Studio (the full UI, in
 [`kalharbi11/wirescape-lab`](https://github.com/kalharbi11/wirescape-lab)) and run here unchanged.
 
 **Status (2026-11-26): skeleton.** The architecture, API, file formats and repo rules are decided by
-the Fable design run 2 (brief: lab `docs/context/fable/`). Until then this repo holds requirements and
+the Planner run 2 (`claude-planner`) (brief: lab `docs/context/planner/`). Until then this repo holds requirements and
 examples only. Nothing here is a decision yet.
 
 ```
