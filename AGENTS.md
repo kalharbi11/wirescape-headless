@@ -35,6 +35,8 @@ change to the design goes to the lab, not here.
 13. **No force-push and no history rewrite** on shared branches. No commits to `main`.
 
 ## Work
+- **Task pool:** [docs/TASKS.md](docs/TASKS.md). The trigger `headless: run` starts any agent on the next free
+  bundle. Nobody is assigned.
 - One task issue, one branch and one PR against `main`, with the task ID (H-n) in the title. Write the
   failing test first.
 - **Review:** one simple review by a **different agent session**. It reads the diff and comments

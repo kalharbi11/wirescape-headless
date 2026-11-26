@@ -8,8 +8,8 @@ first). Patches are built in Wirescape Studio
 
 **Design:** lab [`proposals/0025`](https://github.com/kalharbi11/wirescape-lab/blob/main/proposals/0025-player-osc-scripts-tools.md)
 (Planner run 2b, final). Macros and mapping come from lab `proposals/0024` §3 and §6.
-**Status (2026-11-26):** rules and design are fixed. The first tasks are H-0 (CI), H-1 (API schema and fake
-player) and H-2 (`player.json`). None of them needs an engine change.
+**Status (2026-11-26):** H-0 (CI), H-1 (API schema and fake player) and H-2 (`player.json` and check) are
+in review. Next are bundles B–D in [`docs/TASKS.md`](docs/TASKS.md). None of them needs an engine change.
 
 ```
 Studio (full UI) ── bundle export ──► bundle: patches/ + player.json + scripts/ + presets/
