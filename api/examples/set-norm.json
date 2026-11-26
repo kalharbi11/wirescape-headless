@@ -1,0 +1,16 @@
+{
+ "SPDX-License-Identifier": "GPL-3.0-only",
+ "request": {
+  "type": "set",
+  "control": "cutoff",
+  "norm": 0.5
+ },
+ "reply": {
+  "ok": true,
+  "result": {
+   "key": "param:2:cutoff",
+   "value": 10010.0,
+   "norm": 0.5
+  }
+ }
+}

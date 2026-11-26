@@ -1,0 +1,13 @@
+{
+ "SPDX-License-Identifier": "GPL-3.0-only",
+ "request": {
+  "type": "select",
+  "index": 5
+ },
+ "reply": {
+  "ok": true,
+  "result": {
+   "index": 5
+  }
+ }
+}

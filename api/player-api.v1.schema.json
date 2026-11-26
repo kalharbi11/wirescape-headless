@@ -1,0 +1,1264 @@
+{
+ "$comment": "SPDX-License-Identifier: GPL-3.0-only",
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://wirescape-headless.invalid/player-api.v1.schema.json",
+ "title": "Wirescape Player API v1",
+ "description": "lab proposals/0025 \u00a72.5. Additive changes bump state.api minor; a break is /api/v2/. Use $defs/command for POST /api/v1/command bodies, $defs/reply for its answers, $defs/state for GET /api/v1/state and $defs/event for SSE frames ({event, data}).",
+ "$defs": {
+  "target": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "macro": {
+       "type": "object",
+       "properties": {
+        "page": {
+         "type": "integer",
+         "minimum": 1
+        },
+        "knob": {
+         "type": "integer",
+         "minimum": 1,
+         "maximum": 8
+        }
+       },
+       "required": [
+        "page",
+        "knob"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "required": [
+      "macro"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "param": {
+       "type": "object",
+       "properties": {
+        "module": {
+         "type": "integer",
+         "minimum": 1,
+         "maximum": 4294967295
+        },
+        "param": {
+         "type": "string",
+         "minLength": 1,
+         "maxLength": 256
+        }
+       },
+       "required": [
+        "module",
+        "param"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "required": [
+      "param"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "modAmount": {
+       "type": "object",
+       "properties": {
+        "from": {
+         "type": "object",
+         "properties": {
+          "module": {
+           "type": "integer",
+           "minimum": 1,
+           "maximum": 4294967295
+          },
+          "port": {
+           "type": "string",
+           "minLength": 1,
+           "maxLength": 256
+          }
+         },
+         "required": [
+          "module",
+          "port"
+         ]
+        },
+        "to": {
+         "type": "object",
+         "properties": {
+          "module": {
+           "type": "integer",
+           "minimum": 1,
+           "maximum": 4294967295
+          },
+          "param": {
+           "type": "string",
+           "minLength": 1,
+           "maxLength": 256
+          }
+         },
+         "required": [
+          "module",
+          "param"
+         ]
+        }
+       },
+       "required": [
+        "from",
+        "to"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "required": [
+      "modAmount"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "script": {
+       "type": "object",
+       "properties": {
+        "file": {
+         "type": "string",
+         "minLength": 1,
+         "maxLength": 256
+        },
+        "control": {
+         "type": "string",
+         "minLength": 1,
+         "maxLength": 256
+        }
+       },
+       "required": [
+        "file",
+        "control"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "required": [
+      "script"
+     ],
+     "additionalProperties": false
+    }
+   ]
+  },
+  "control": {
+   "type": "object",
+   "properties": {
+    "label": {
+     "type": "string"
+    },
+    "kind": {
+     "enum": [
+      "macro",
+      "param",
+      "modAmount",
+      "script",
+      "invalid"
+     ]
+    },
+    "target": {
+     "type": "object"
+    },
+    "min": {
+     "type": "number"
+    },
+    "max": {
+     "type": "number"
+    },
+    "step": {
+     "type": "number"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "taper": {
+     "type": "string"
+    },
+    "choices": {
+     "type": [
+      "array",
+      "null"
+     ]
+    },
+    "value": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "norm": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "minimum": 0,
+     "maximum": 1
+    },
+    "display": {
+     "type": "string"
+    },
+    "resolved": {
+     "type": "boolean"
+    },
+    "key": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "label",
+    "kind",
+    "target",
+    "min",
+    "max",
+    "step",
+    "unit",
+    "taper",
+    "choices",
+    "value",
+    "norm",
+    "display",
+    "resolved"
+   ]
+  },
+  "engine": {
+   "type": "object",
+   "properties": {
+    "state": {
+     "enum": [
+      "starting",
+      "running",
+      "restarting",
+      "stalled",
+      "stopped"
+     ]
+    },
+    "restarts": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "lastExit": {
+     "oneOf": [
+      {
+       "type": "null"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "code": {
+         "type": [
+          "integer",
+          "null"
+         ]
+        },
+        "signal": {
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "at": {
+         "type": "number"
+        }
+       },
+       "required": [
+        "code",
+        "signal",
+        "at"
+       ]
+      }
+     ]
+    },
+    "audio": {
+     "type": [
+      "object",
+      "null"
+     ]
+    },
+    "capabilities": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "state",
+    "restarts",
+    "lastExit",
+    "audio",
+    "capabilities"
+   ]
+  },
+  "oscState": {
+   "type": "object",
+   "properties": {
+    "controlPort": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 65535
+    },
+    "routes": {
+     "type": "array",
+     "items": {
+      "type": "object"
+     }
+    }
+   },
+   "required": [
+    "controlPort",
+    "routes"
+   ]
+  },
+  "state": {
+   "type": "object",
+   "properties": {
+    "api": {
+     "type": "string",
+     "pattern": "^1\\.[0-9]+$"
+    },
+    "rev": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "player": {
+     "type": "object",
+     "properties": {
+      "version": {
+       "type": "string"
+      },
+      "uptimeS": {
+       "type": "number"
+      },
+      "fake": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "version",
+      "uptimeS"
+     ]
+    },
+    "engine": {
+     "$ref": "#/$defs/engine"
+    },
+    "bundle": {
+     "type": "object",
+     "properties": {
+      "name": {
+       "type": "string"
+      },
+      "title": {
+       "type": "string"
+      },
+      "check": {
+       "type": "object",
+       "properties": {
+        "ok": {
+         "type": "boolean"
+        },
+        "errors": {
+         "type": "integer",
+         "minimum": 0
+        },
+        "warnings": {
+         "type": "integer",
+         "minimum": 0
+        }
+       },
+       "required": [
+        "ok",
+        "errors",
+        "warnings"
+       ]
+      }
+     },
+     "required": [
+      "name",
+      "title",
+      "check"
+     ]
+    },
+    "setlist": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "index": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "title": {
+        "type": "string"
+       },
+       "patch": {
+        "type": "string"
+       },
+       "program": {
+        "type": [
+         "integer",
+         "null"
+        ],
+        "minimum": 0,
+        "maximum": 127
+       }
+      },
+      "required": [
+       "index",
+       "title",
+       "patch",
+       "program"
+      ]
+     }
+    },
+    "current": {
+     "type": "object",
+     "properties": {
+      "index": {
+       "type": [
+        "integer",
+        "null"
+       ],
+       "minimum": 0
+      },
+      "switching": {
+       "type": "boolean"
+      },
+      "pending": {
+       "type": [
+        "integer",
+        "null"
+       ],
+       "minimum": 0
+      },
+      "error": {
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "index",
+      "switching",
+      "pending",
+      "error"
+     ]
+    },
+    "pages": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "title": {
+        "type": "string"
+       },
+       "controls": {
+        "type": "array",
+        "items": {
+         "type": "string",
+         "pattern": "^[a-z0-9_-]{1,32}$"
+        }
+       }
+      },
+      "required": [
+       "title",
+       "controls"
+      ]
+     }
+    },
+    "controls": {
+     "type": "object",
+     "propertyNames": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]{1,32}$"
+     },
+     "additionalProperties": {
+      "$ref": "#/$defs/control"
+     }
+    },
+    "scripts": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "file": {
+        "type": "string"
+       },
+       "state": {
+        "enum": [
+         "running",
+         "stopped",
+         "crashed",
+         "restarting",
+         "stalled"
+        ]
+       },
+       "restarts": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "controls": {
+        "type": "array"
+       }
+      },
+      "required": [
+       "file",
+       "state",
+       "restarts",
+       "controls"
+      ]
+     }
+    },
+    "midi": {
+     "type": "object",
+     "properties": {
+      "devices": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+         },
+         "name": {
+          "type": "string"
+         },
+         "kind": {
+          "const": "midi"
+         },
+         "enabled": {
+          "type": "boolean"
+         }
+        },
+        "required": [
+         "id",
+         "name"
+        ]
+       }
+      }
+     },
+     "required": [
+      "devices"
+     ]
+    },
+    "osc": {
+     "$ref": "#/$defs/oscState"
+    },
+    "warnings": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "api",
+    "rev",
+    "player",
+    "engine",
+    "bundle",
+    "setlist",
+    "current",
+    "pages",
+    "controls",
+    "scripts",
+    "midi",
+    "osc",
+    "warnings"
+   ]
+  },
+  "command": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "select"
+      },
+      "index": {
+       "type": "integer",
+       "minimum": 0
+      }
+     },
+     "required": [
+      "type",
+      "index"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "next"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "prev"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    },
+    {
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "const": "set"
+        },
+        "control": {
+         "type": "string",
+         "pattern": "^[a-z0-9_-]{1,32}$"
+        },
+        "target": {
+         "$ref": "#/$defs/target"
+        },
+        "value": {
+         "type": "number"
+        },
+        "norm": {
+         "type": "number",
+         "minimum": 0,
+         "maximum": 1
+        }
+       },
+       "required": [
+        "type"
+       ]
+      },
+      {
+       "oneOf": [
+        {
+         "required": [
+          "control"
+         ]
+        },
+        {
+         "required": [
+          "target"
+         ]
+        }
+       ]
+      },
+      {
+       "oneOf": [
+        {
+         "required": [
+          "value"
+         ]
+        },
+        {
+         "required": [
+          "norm"
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "type": {
+         "const": "reset"
+        },
+        "control": {
+         "type": "string",
+         "pattern": "^[a-z0-9_-]{1,32}$"
+        },
+        "target": {
+         "$ref": "#/$defs/target"
+        }
+       },
+       "required": [
+        "type"
+       ]
+      },
+      {
+       "not": {
+        "required": [
+         "control",
+         "target"
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "panic"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "params.list"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "bundle.list"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "bundle.load"
+      },
+      "name": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "type",
+      "name"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "bundle.check"
+      },
+      "name": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "audio.devices"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "audio.select"
+      },
+      "deviceId": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 256
+      }
+     },
+     "required": [
+      "type",
+      "deviceId"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "audio.buffer"
+      },
+      "frames": {
+       "enum": [
+        64,
+        128,
+        256,
+        512,
+        1024
+       ]
+      }
+     },
+     "required": [
+      "type",
+      "frames"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "audio.rate"
+      },
+      "hz": {
+       "enum": [
+        44100,
+        48000,
+        96000
+       ]
+      }
+     },
+     "required": [
+      "type",
+      "hz"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "midi.devices"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "midi.enable"
+      },
+      "deviceId": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 256
+      },
+      "on": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "type",
+      "deviceId",
+      "on"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "engine.restart"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "script.start"
+      },
+      "file": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 256
+      }
+     },
+     "required": [
+      "type",
+      "file"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "script.stop"
+      },
+      "file": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 256
+      }
+     },
+     "required": [
+      "type",
+      "file"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "script.restart"
+      },
+      "file": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 256
+      }
+     },
+     "required": [
+      "type",
+      "file"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "config.get"
+      }
+     },
+     "required": [
+      "type"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "config.put"
+      },
+      "json": {
+       "type": "object"
+      }
+     },
+     "required": [
+      "type",
+      "json"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "type": {
+       "const": "fake.inject"
+      },
+      "what": {
+       "enum": [
+        "engineCrash",
+        "engineStall",
+        "scriptCrash",
+        "controller"
+       ]
+      },
+      "event": {
+       "$ref": "#/$defs/controllerEvent"
+      }
+     },
+     "required": [
+      "type",
+      "what"
+     ]
+    }
+   ]
+  },
+  "reply": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "ok": {
+       "const": true
+      },
+      "result": {
+       "type": "object"
+      }
+     },
+     "required": [
+      "ok",
+      "result"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "ok": {
+       "const": false
+      },
+      "code": {
+       "enum": [
+        "invalid",
+        "not-found",
+        "busy",
+        "refused",
+        "unavailable",
+        "engine"
+       ]
+      },
+      "message": {
+       "type": "string",
+       "minLength": 1
+      },
+      "engineCode": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "ok",
+      "code",
+      "message"
+     ],
+     "additionalProperties": false
+    }
+   ]
+  },
+  "controllerEvent": {
+   "type": "object",
+   "required": [
+    "kind"
+   ],
+   "properties": {
+    "kind": {
+     "type": "string"
+    },
+    "t": {
+     "type": "integer"
+    },
+    "deviceId": {
+     "type": "string"
+    },
+    "channel": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 16
+    },
+    "controller": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 127
+    },
+    "value": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 127
+    },
+    "program": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 127
+    },
+    "note": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 127
+    },
+    "velocity": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 127
+    },
+    "port": {
+     "type": "integer"
+    },
+    "address": {
+     "type": "string",
+     "maxLength": 128
+    },
+    "args": {
+     "type": "array",
+     "maxItems": 4,
+     "items": {
+      "type": "number"
+     }
+    },
+    "more": {
+     "type": "boolean"
+    },
+    "matched": {
+     "type": "boolean"
+    }
+   }
+  },
+  "valuesEvent": {
+   "type": "object",
+   "properties": {
+    "rev": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "values": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "object",
+      "properties": {
+       "value": {
+        "type": "number"
+       },
+       "norm": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+       }
+      },
+      "required": [
+       "value",
+       "norm"
+      ]
+     }
+    }
+   },
+   "required": [
+    "rev",
+    "values"
+   ]
+  },
+  "statusEvent": {
+   "type": "object",
+   "properties": {
+    "rev": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "engine": {
+     "type": "object",
+     "properties": {
+      "state": {
+       "$ref": "#/$defs/engine/properties/state"
+      },
+      "restarts": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "lastExit": {
+       "$ref": "#/$defs/engine/properties/lastExit"
+      },
+      "audio": {
+       "type": [
+        "object",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "state",
+      "restarts",
+      "lastExit",
+      "audio"
+     ]
+    },
+    "scripts": {
+     "type": "array"
+    },
+    "osc": {
+     "$ref": "#/$defs/oscState"
+    }
+   },
+   "required": [
+    "rev",
+    "engine",
+    "scripts",
+    "osc"
+   ]
+  },
+  "controllerPush": {
+   "type": "object",
+   "properties": {
+    "events": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/controllerEvent"
+     }
+    }
+   },
+   "required": [
+    "events"
+   ]
+  },
+  "event": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "event": {
+       "const": "state"
+      },
+      "data": {
+       "$ref": "#/$defs/state"
+      }
+     },
+     "required": [
+      "event",
+      "data"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "event": {
+       "const": "values"
+      },
+      "data": {
+       "$ref": "#/$defs/valuesEvent"
+      }
+     },
+     "required": [
+      "event",
+      "data"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "event": {
+       "const": "status"
+      },
+      "data": {
+       "$ref": "#/$defs/statusEvent"
+      }
+     },
+     "required": [
+      "event",
+      "data"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "event": {
+       "const": "controller"
+      },
+      "data": {
+       "$ref": "#/$defs/controllerPush"
+      }
+     },
+     "required": [
+      "event",
+      "data"
+     ]
+    }
+   ]
+  }
+ }
+}

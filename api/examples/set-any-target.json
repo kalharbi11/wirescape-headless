@@ -1,0 +1,21 @@
+{
+ "SPDX-License-Identifier": "GPL-3.0-only",
+ "request": {
+  "type": "set",
+  "target": {
+   "param": {
+    "module": 6,
+    "param": "mix"
+   }
+  },
+  "value": 0.5
+ },
+ "reply": {
+  "ok": true,
+  "result": {
+   "key": "param:6:mix",
+   "value": 0.5,
+   "norm": 0.5
+  }
+ }
+}

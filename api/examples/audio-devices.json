@@ -1,0 +1,23 @@
+{
+ "SPDX-License-Identifier": "GPL-3.0-only",
+ "request": {
+  "type": "audio.devices"
+ },
+ "reply": {
+  "ok": true,
+  "result": {
+   "devices": [
+    {
+     "id": "Fake|Null output",
+     "name": "Null output",
+     "kind": "audio",
+     "sampleRates": [
+      44100,
+      48000,
+      96000
+     ]
+    }
+   ]
+  }
+ }
+}

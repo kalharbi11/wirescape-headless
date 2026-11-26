@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# H0 (lab proposals/0025 §5.3): Linux x64, every push and PR. Budget 5 minutes.
+# Required check: "H0 gate". It always reports, so docs-only PRs pass in seconds.
+name: H0
+on:
+  push:
+    branches: [main]
+  pull_request:
+concurrency:
+  group: h0-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.s.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: s
+        name: Docs-only or code
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 .github/scope.py "$BASE" >> "$GITHUB_OUTPUT"
+  test:
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: python -m pip install -r requirements-dev.txt
+      - name: LAB_PIN format
+        run: python tools/labpin.py verify
+      - name: Unit and contract tests (devices off)
+        run: python -m unittest discover -s tests -t . -v
+  gate:
+    name: H0 gate
+    if: always()
+    needs: [scope, test]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: All H0 jobs passed or were skipped by scope
+        env:
+          RESULTS: ${{ needs.scope.result }} ${{ needs.test.result }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do case "$r" in success|skipped) ;; *) exit 1;; esac; done
+          [ "${{ needs.scope.result }}" = success ]

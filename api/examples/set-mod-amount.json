@@ -1,0 +1,16 @@
+{
+ "SPDX-License-Identifier": "GPL-3.0-only",
+ "request": {
+  "type": "set",
+  "control": "wob",
+  "value": -0.25
+ },
+ "reply": {
+  "ok": true,
+  "result": {
+   "key": "mod:10:control>2:cutoff",
+   "value": -0.25,
+   "norm": 0.375
+  }
+ }
+}
