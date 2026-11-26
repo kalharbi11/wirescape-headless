@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 # Player requirements (owner, 2026-11-26)
 
-Source: lab `docs/context/planner/01_OWNER_WANTS.md` §B.2–B.3. Planner run 2 (`claude-planner`) turns these into the
-design; this file lists *what*, not *how*.
+Source: lab `docs/context/planner/01_OWNER_WANTS.md` §B.2–B.3. The design is lab
+`proposals/0025` (Planner run 2b); this file lists *what*, not *how*.
 
 ## Functions
 - Play any patch built in Studio, unchanged, with every Wirescape module.
@@ -38,7 +38,8 @@ design; this file lists *what*, not *how*.
   `docs/specs/ENGINE_PROTOCOL.md`). Studio is only a client.
 - Patch replacement fades out, swaps and fades in (lab `host/sidecar/session.cpp`).
 - MIDI Learn mappings are saved inside the patch as `midi.cc_to_cv` rows plus cables.
-- The desktop app stops restarting the engine after 3 crashes in 30 s (lab `apps/desktop/main.ts:262`);
-  the Player must not copy that policy.
+- The desktop app restarts the engine with a growing delay, 250 ms doubling to 30 s, and never gives up;
+  a stable status heartbeat resets the delay (lab `apps/desktop/main.ts:15-19`, since RS #624). The
+  Player uses the same backoff (lab `proposals/0025` §2.2).
 
 Signed: claude-architect, 2026-11-26
