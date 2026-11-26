@@ -1,0 +1,39 @@
+{
+  "SPDX-License-Identifier": "GPL-3.0-only",
+  "format": "wirescape.player", "version": 1, "title": "Example set",
+  "setlist": [
+    { "patch": "patches/basics-01-first-tone.json", "title": "First tone", "program": 0 },
+    { "patch": "patches/basics-05-random-melody.json", "title": "Random melody", "program": 1 },
+    { "patch": "patches/basics-08-clocked-groove.json", "title": "Clocked groove", "program": 2,
+      "controls": [
+        {"id": "tempo", "label": "Tempo", "target": {"param": {"module": 1, "param": "bpm"}}},
+        {"id": "pitch", "target": {"param": {"module": 4, "param": "frequency"}}},
+        {"id": "echo", "label": "Echo", "target": {"param": {"module": 7, "param": "mix"}}}
+      ],
+      "pages": [{"title": "Groove", "controls": ["tempo", "pitch", "echo"]}] },
+    { "patch": "patches/osc-out-01.json", "title": "OSC out", "program": 3 },
+    { "patch": "patches/quad-vca-01-lpg-plucks.json", "title": "LPG plucks", "program": 4, "recall": "patch" },
+    { "patch": "patches/scene-03-black-ice-choir.json", "title": "Black ice choir", "program": 5,
+      "controls": [
+        {"id": "cutoff", "label": "Cutoff", "target": {"param": {"module": 2, "param": "cutoff"}}},
+        {"id": "wob", "label": "Wobble", "target": {"modAmount": {"from": {"module": 10, "port": "control"},
+                                                                   "to": {"module": 2, "param": "cutoff"}}}},
+        {"id": "space", "label": "Space", "target": {"param": {"module": 6, "param": "mix"}}}
+      ],
+      "pages": [{"title": "Choir", "controls": ["cutoff", "wob", "space"]}],
+      "scripts": [{"file": "scripts/generative_ws.py", "port": 9000}] }
+  ],
+  "controls": [
+    {"id": "m1", "target": {"macro": {"page": 1, "knob": 1}}},
+    {"id": "dens", "label": "Density", "target": {"script": {"file": "scripts/generative_ws.py", "control": "density"}}}
+  ],
+  "pages": [{"title": "Main", "controls": ["m1", "dens"]}],
+  "hardware": [
+    {"source": {"midi": {"device": "*", "channel": 1, "cc": 74}}, "control": "cutoff", "takeover": "pickup"},
+    {"source": {"osc": {"address": "/ws/knob/1", "arg": 0, "min": 0, "max": 1}}, "control": "dens"},
+    {"source": {"midi": {"device": "*", "channel": "any", "note": 36}}, "action": "next"},
+    {"source": {"midi": {"device": "*", "channel": "any", "note": 37}}, "action": "prev"}
+  ],
+  "programChange": {"enabled": true, "device": "*", "channel": "any", "debounceMs": 150},
+  "osc": {"controlPort": 9100}
+}

@@ -1,0 +1,12 @@
+{
+ "SPDX-License-Identifier": "GPL-3.0-only",
+ "request": {
+  "type": "select",
+  "index": 99
+ },
+ "reply": {
+  "ok": false,
+  "code": "not-found",
+  "message": "no setlist entry 99"
+ }
+}
