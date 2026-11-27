@@ -70,7 +70,10 @@ every ten seconds. It does not open devices or send traffic. Use the same
 recorder in all PG10 comparisons. Record its diagnostic overhead; do not use
 it for the H-f1 latency timing. A normal uninstrumented service repeat is
 valuable if the diagnostic run shows a regression. Check free disk space
-before a 12 h run and retain the file after stopping.
+before a 12 h run and retain the file after stopping. A recording failure is
+reported on stderr, disables further recording without interrupting engine
+message dispatch, and returns a nonzero status when the Player stops. Treat
+that run as inconclusive; stop it normally and repeat after resolving the error.
 
 ### Evaluation
 
