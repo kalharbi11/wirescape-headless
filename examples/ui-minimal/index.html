@@ -1,0 +1,49 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minimal Player UI</title>
+<style>
+:root{color-scheme:dark;font:20px system-ui;background:#14181b;color:#eee}
+body{padding:12px}button{font:inherit;min-width:48px;min-height:48px;padding:8px 18px}
+</style>
+<h1>My Player</h1>
+<p role="status" id="state">Connecting…</p>
+<button data-command="prev">Previous</button>
+<button data-command="next">Next</button>
+<button data-command="panic">Panic</button>
+<p role="alert" id="error"></p>
+<script>
+const view = document.querySelector("#state");
+const error = document.querySelector("#error");
+const events = new EventSource("/api/v1/events");
+let state = null;
+function display() {
+  const entry = state.setlist.find(item => item.index === state.current.index);
+  view.textContent = (entry?.title || "No patch") + " · " + state.engine.state;
+}
+events.addEventListener("state", e => { state = JSON.parse(e.data); display(); });
+events.addEventListener("status", e => {
+  const update = JSON.parse(e.data);
+  if (state && state.rev === update.rev) {
+    Object.assign(state.engine, update.engine);
+    display();
+  }
+});
+events.onerror = () => { view.textContent = "Disconnected — reconnecting"; };
+for (const button of document.querySelectorAll("[data-command]")) {
+  button.onclick = async () => {
+    error.textContent = "";
+    try {
+      const response = await fetch("/api/v1/command", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({type: button.dataset.command})
+      });
+      const reply = await response.json();
+      if (!response.ok || !reply.ok) throw new Error(reply.code + ": " + reply.message);
+    } catch (e) { error.textContent = e.message; }
+  };
+}
+</script>
+</html>
