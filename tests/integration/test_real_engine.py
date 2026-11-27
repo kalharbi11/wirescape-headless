@@ -27,6 +27,7 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
         self.bundle = B.load(self.bundle_dir.root)
         self.store = StateStore(pathlib.Path(self.state_dir.name))
         self.engines = []
+        self.binary = binary
 
         class RecordingEngine(EngineProcess):
             def __init__(eng):
@@ -54,7 +55,10 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.server.close)
         self.addAsyncCleanup(self.core.close)
         await self.core.start()
-        self.assertEqual((await self.state())["engine"]["state"], "running")
+        state = await self.state()
+        self.assertEqual(state["engine"]["state"], "running")
+        self.assertIsNotNone(state["current"]["index"], state)
+        self.assertIsNone(state["current"]["error"], state)
 
     async def state(self):
         doc = await api.get_state(self.port)
@@ -75,6 +79,37 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
                 return
             await asyncio.sleep(0.05)
         self.fail("real engine did not reach the expected state")
+
+    async def test_real_contract_commands_and_events(self):
+        async with api.Events(self.port) as events:
+            kind, data = await events.next()
+            V["event"].validate({"event": kind, "data": data})
+            self.assertEqual(kind, "state")
+            await self.ok(type="select", index=2)
+            await self.ok(type="set", control="tempo", value=138)
+            seen = set()
+            for _ in range(60):
+                kind, data = await events.next()
+                V["event"].validate({"event": kind, "data": data})
+                seen.add(kind)
+                if {"state", "values", "status"} <= seen:
+                    break
+            self.assertTrue({"state", "values", "status"} <= seen, seen)
+        await self.ok(type="params.list")
+        await self.ok(type="reset", control="tempo")
+        await self.ok(type="panic")
+        await self.ok(type="bundle.list")
+        await self.ok(type="bundle.check", name=self.bundle.name)
+        await self.ok(type="config.get")
+        await self.ok(type="audio.devices")
+        await self.ok(type="midi.devices")
+        for cmd in ({"type": "select", "index": 999},
+                    {"type": "fake.inject", "what": "engineCrash"},
+                    {"type": "config.put", "json": {}}):
+            V["command"].validate(cmd)
+            reply = await api.command(self.port, cmd)
+            V["reply"].validate(reply)
+            self.assertFalse(reply["ok"], reply)
 
     async def test_pg1_restart_reloads_composed_values(self):
         await self.ok(type="select", index=2)
