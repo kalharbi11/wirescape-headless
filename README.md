@@ -8,8 +8,7 @@ first). Patches are built in Wirescape Studio
 
 **Design:** lab [`proposals/0025`](https://github.com/kalharbi11/wirescape-lab/blob/main/proposals/0025-player-osc-scripts-tools.md)
 (Planner run 2b, final). Macros and mapping come from lab `proposals/0024` §3 and §6.
-**Status (2026-11-26):** H-0 (CI), H-1 (API schema and fake player) and H-2 (`player.json` and check) are
-in review. Next are bundles B–D in [`docs/TASKS.md`](docs/TASKS.md). None of them needs an engine change.
+**Status:** see [`docs/TASKS.md`](docs/TASKS.md) for the active tasks and pinned-engine limitations.
 
 ```
 Studio (full UI) ── bundle export ──► bundle: patches/ + player.json + scripts/ + presets/
@@ -47,6 +46,13 @@ python -m player install path/to/bundle --state DIR      # atomic; refuses on ch
 python -m player run --state DIR --engine PATH [--bundle-root DIR] [--engine-arg=--confirm-audio …]
 python -m unittest                                        # H0 tests
 ```
+
+## Guides
+- [OSC and MIDI setup](docs/guides/OSC_MIDI_SETUP.md)
+- [Python scripting](docs/guides/SCRIPTING.md)
+- [Board setup](docs/guides/boards/): board-specific firmware, ADC and MIDI/OSC examples
+- [Player installation](docs/guides/INSTALL_PI.md)
+- [UI design](docs/UI_GUIDE.md)
 
 ## Layout
 | Path | What |
