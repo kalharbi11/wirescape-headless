@@ -5,6 +5,7 @@ The production Player, including its mapping and request path, is unchanged.
 from __future__ import annotations
 
 import argparse
+import asyncio
 from collections import Counter
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -164,7 +165,8 @@ class ObservedEngine(EngineProcess):
         super()._dispatch(msg)
 
     async def request(self, msg):
-        row = ACTIVE.get()
+        active = ACTIVE.get()
+        row = active[0] if active and active[1] is asyncio.current_task() else None
         reply = None
         receipt = None
         try:
@@ -190,7 +192,7 @@ class ObservedCore(PlayerCore):
         row = self.collector.row_for(event)
         if row is not None:
             row["mapped"] = True
-        token = ACTIVE.set(row)
+        token = ACTIVE.set((row, asyncio.current_task()))
         try:
             return await super()._map_controller(event)
         finally:

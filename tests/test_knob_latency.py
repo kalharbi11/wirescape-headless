@@ -1,7 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """H-16: correlation, units, tails, provenance and honest missing evidence."""
+import asyncio
+import json
+from types import SimpleNamespace
 import unittest
-from tools.knob_latency import Collector, summarize, validate_provenance
+from unittest.mock import patch
+from tools.knob_latency import (Collector, ObservedCore, ObservedEngine,
+                                summarize, validate_provenance)
+from player.core import PlayerCore
 
 
 class KnobLatencyTests(unittest.TestCase):
@@ -88,6 +94,52 @@ class KnobLatencyTests(unittest.TestCase):
                            ("clock", "wall"), ("platform", "Darwin"), ("receipt_unit", "ms")):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 validate_provenance({**valid, key: value})
+
+
+class AdapterReceiptTests(unittest.IsolatedAsyncioTestCase):
+    async def test_dispatch_pairs_actual_request_and_ignores_other_task_and_session(self):
+        collector = Collector(1_000_000_000, 1, 1)
+        engine = ObservedEngine("unused", [], collector)
+        engine.session = "s1"
+        event = dict(kind="cc", deviceId="test", channel=1, controller=1, value=64,
+                     t=1_100_000)
+        engine._dispatch({"type": "controller", "session": "s1", "gen": "4",
+                          "events": [event]})
+
+        class Stdin:
+            def write(self, payload):
+                request = json.loads(payload)
+                reply = {"re": request["id"], "ok": True, "session": "s1"}
+                engine._dispatch({**reply, "session": "wrong"})
+                self.assert_not_received(request["id"])
+                with patch("tools.knob_latency.time.monotonic_ns", return_value=1_107_000_000):
+                    engine._dispatch(reply)
+
+            def assert_not_received(self, rid):
+                if rid in engine._receipts:
+                    raise AssertionError("wrong session accepted")
+
+            async def drain(self):
+                pass
+
+        engine.proc = SimpleNamespace(stdin=Stdin())
+        core = object.__new__(ObservedCore)
+        core.collector = collector
+        command = {"type": "setParam", "moduleId": 2, "paramId": "frequency", "value": 64}
+
+        async def map_controller(_core, _event):
+            # Child task inherits ContextVar but is not the mapping task.
+            await asyncio.create_task(engine.request(command))
+            await engine.request(command)
+
+        with patch.object(PlayerCore, "_map_controller", map_controller):
+            await core._map_controller(event)
+        row = collector.row_for(event)
+        self.assertTrue(row["mapped"])
+        self.assertEqual(len(row["requests"]), 1)
+        self.assertEqual(row["requests"][0]["reply"]["re"], "p2")
+        self.assertEqual(summarize(collector.rows, expected=1)["p99_ms"], 7.0)
+        self.assertEqual(engine._receipts, {})
 
 
 if __name__ == "__main__":
