@@ -3,7 +3,8 @@
 
     python -m player run --state DIR --engine PATH [--bundle-root DIR] [--engine-arg ARG]… [--api-port N]
 
-The engine always gets `--settings <state>/engine-settings.json` (absolute). Device consent
+The engine always gets `--settings <state>/engine-settings.json` (absolute) and the boot
+bundle's nonzero `osc.controlPort` as a launch option. Device consent
 (`--confirm-audio`, `--confirm-midi`, `--confirm-lan`) is never a default: only the owner's
 unit passes it with `--engine-arg`. On SIGTERM the Player saves state, stops the engine
 (close stdin, 2 s, SIGKILL) and exits 0. Logs go to stderr.
@@ -25,8 +26,11 @@ from .state import StateStore
 from .notify import notify, watchdog
 
 
-def engine_argv(state: pathlib.Path, extra: list[str]) -> list[str]:
-    return [*extra, "--settings", str((state / "engine-settings.json").resolve())]
+def engine_argv(state: pathlib.Path, extra: list[str], control_port: int = 0) -> list[str]:
+    args = list(extra)
+    if control_port:
+        args.extend(["--control-osc-port", str(control_port)])
+    return [*args, "--settings", str((state / "engine-settings.json").resolve())]
 
 
 def main(argv: list[str]) -> int:
@@ -40,13 +44,14 @@ def main(argv: list[str]) -> int:
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(name)s %(levelname)s %(message)s")
     a.state.mkdir(parents=True, exist_ok=True)
     bundles, initial = boot(a.state, a.bundle_root)
-    args = engine_argv(a.state, a.engine_arg)
 
     async def run() -> None:
         first = bundles.get((initial or {}).get("bundle")) or next(iter(bundles.values()), None)
         osc = first.config.get("osc") if first and isinstance(first.config.get("osc"), dict) else {}
+        control_port = (osc or {}).get("controlPort", 0) or 0
+        args = engine_argv(a.state, a.engine_arg, control_port)
         core = PlayerCore(bundles, lambda: EngineProcess(a.engine, args), store=StateStore(a.state),
-                          initial=initial, control_port=osc.get("controlPort", 0) or 0)
+                          initial=initial, control_port=control_port)
         server = ApiServer(core, port=a.api_port)
         port = await server.start()
         # The API listens before the engine is up, so a broken engine never hides the fault (0025 §2.2).
