@@ -1,6 +1,4 @@
 # SPDX-License-Identifier: GPL-3.0-only
-import asyncio
-import json
 import unittest
 
 from player import bundle as B
@@ -36,7 +34,10 @@ ws.start()
     async def test_press_threshold_and_no_replay(self):
         await self.cmd(type="select", index=5)
         s = await self.wait(lambda s: s["controls"]["press"]["resolved"] and s["scripts"][0]["state"] == "running")
+        await self.receive("/test/count", 0)
         c = s["controls"]["press"]
+        self.assertTrue(c["momentary"])
+        self.assertTrue(all(c["type"] not in ("text", "notes", "label") and c["id"] != "unbounded" for c in s["scripts"][0]["controls"]))
         self.assertEqual((c["min"], c["max"], c["step"], c["value"], c["norm"]), (0, 1, 1, None, None))
         for cid in ("text", "notes", "label", "unbounded"):
             self.assertEqual(s["controls"][cid]["kind"], "invalid")
@@ -49,16 +50,19 @@ ws.start()
         self.assertNotIn("press", script.values)
         self.assertNotIn("script:scripts/probe.py:press", self.core.values.get(5, {}))
         await self.cmd(type="script.restart", file="scripts/probe.py")
+        self.assertNotIn("press", script.values)
         await self.wait(lambda s: s["scripts"][0]["state"] == "running")
         await self.receive("/test/count", 0)
         await self.cmd(type="select", index=0)
         await self.cmd(type="select", index=5)
         await self.wait(lambda s: s["scripts"][0]["state"] == "running")
         await self.receive("/test/count", 0)
+        self.assertNotIn("press", self.core.scripts["scripts/probe.py"].values)
 
     async def test_midi_edges(self):
         await self.cmd(type="select", index=5)
         await self.wait(lambda s: s["scripts"][0]["state"] == "running")
+        await self.receive("/test/count", 0)
         for value in (63, 64, 127, 65):
             await self.cmd(type="fake.inject", what="controller", event={"kind":"cc", "deviceId":"test",
                             "channel":1, "controller":12, "value":value})
