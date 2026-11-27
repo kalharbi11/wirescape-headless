@@ -87,7 +87,7 @@ class Base(unittest.IsolatedAsyncioTestCase):
 class Endpoints(Base):
     async def test_state_boots_to_first_entry(self):
         s = await self.state()
-        self.assertEqual(s["api"], "1.0")
+        self.assertEqual(s["api"], "1.1")
         self.assertEqual(s["engine"]["state"], "running")
         self.assertEqual(s["current"]["index"], 0)
         self.assertEqual(len(s["setlist"]), 6)

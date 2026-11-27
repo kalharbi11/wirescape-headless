@@ -35,7 +35,7 @@ that changes the API changes the schema, this page and the fake player together.
 Codes: `invalid`, `not-found`, `busy`, `refused`, `unavailable` (the engine is restarting, or the
 feature is not in this version), `engine` (the engine refused; `engineCode` is its code).
 
-## Commands (v1.0)
+## Commands (v1.1)
 | Type | Fields | Result / notes |
 |---|---|---|
 | `select` | `index` | switches through the arbiter: one `loadGraph` in flight, the latest request wins. A request while a switch is in flight returns `{"index", "queued": true}` |
@@ -77,4 +77,4 @@ stream is a full `state`.
 ## Examples
 `api/examples/` holds one request and reply per command family, taken from the fake player.
 
-H-11: script lifecycle and restart counters are reported in state/status. The script target uses the child's declared bounded numeric control range. Toggle and dropdown use numeric values (0/1 and choice index); text, notes, labels and momentary buttons do not yet have a numeric v1 mapping. Values replay after a script restart and entry recall. The Player does not open UDP itself.
+H-11 / H-11a (A108): script lifecycle and restart counters are reported in state/status. Bounded numeric controls, toggle (0/1) and dropdown (choice index) persist and replay after a script restart and entry recall. A mapped button has `momentary: true`, `min: 0`, `max: 1`, `step: 1`, `value: null`, and `norm: null`. A `set` with value or norm ≥ 0.5 sends one press to the current child; a lower value and reset do nothing. A press is never stored, replayed or emitted as a persistent values event; if the child is not accepting presses the reply is unavailable. MIDI CC mappings fire on 63→64, note-on fires once and note-off is ignored. Text, notes, labels and unbounded numbers are not v1 Player controls; mapped ones appear as unresolved `kind: invalid`. The Player does not open UDP itself. The fake uses the same Player core and script runner.

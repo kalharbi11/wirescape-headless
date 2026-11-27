@@ -2,14 +2,28 @@
 # Install the Player on Raspberry Pi OS
 
 **Applies to:** Headless H-8 (Player v1); use the engine built from this checkout's `LAB_PIN`.  
-**You need:** Raspberry Pi OS Bookworm 64-bit with Python 3.11+, a local graphical session for the optional kiosk, an engine executable built for the target architecture, and a trusted bundle.  
+**You need:** Raspberry Pi OS Bookworm 64-bit with Python 3.11+, a local graphical session for the optional kiosk, the build dependencies below, and a trusted bundle.  
 **Time:** About 20 minutes after the engine is built.
 
 The Player service and kiosk run separately. The Player API is localhost only; the supplied unit is device-off. The owner explicitly enables hardware only after the null-audio check. No pip install is required on the target.
 
 ## 1. Prepare the files
 
-From the headless checkout, on the target, with the matching executable staged as `./wirescape-engine`:
+From the headless checkout on the target, install the lab's headless build dependencies (owner only):
+
+```sh
+sudo apt update
+sudo apt install -y git build-essential pkg-config python3 python3-venv libasound2-dev libportaudio2 libasound2-plugins
+python3 -m venv .tools/build-tools
+. .tools/build-tools/bin/activate
+python -m pip install cmake==4.2.3 ninja==1.13.0
+python tools/build_engine.py --check
+python tools/build_engine.py build ./engine-work
+```
+
+**Check:** the report lists no missing items; the build prints the full pin, compiler and SHA-256 and stages `./wirescape-engine`. Use a new empty work directory on retries. For realtime audio, follow the lab INSTALL.md Raspberry Pi limits instructions for the service account, as applicable.
+
+Install the staged files:
 
 ```sh
 python3 --version
@@ -21,7 +35,7 @@ sudo install -d -m 0755 /opt/wirescape-headless/tests
 sudo cp -a tests/data /opt/wirescape-headless/tests/
 ```
 
-**Check:** Python is 3.11 or later; `test -x /opt/wirescape-headless/bin/wirescape-engine` exits 0. Build the executable from the exact pin using the lab's `tools/dev.py build --headless` instructions; do not substitute an unrelated binary.
+**Check:** Python is 3.11 or later; `test -x /opt/wirescape-headless/bin/wirescape-engine` exits 0. Do not substitute an unrelated binary.
 
 ## 2. Install and start the Player
 
@@ -90,7 +104,7 @@ sudo systemctl restart wirescape-player.service
 journalctl -u wirescape-player.service -n 50 --no-pager
 ```
 
-**Check:** the API reports the actual device state. To go back to device-off, remove the owner override and restart. No agent or CI run grants consent.
+**Check:** the API reports the actual device state. To go back to device-off, remove the owner override and restart. No agent or CI run grants consent. Continue with [HARDWARE_SMOKE.md](HARDWARE_SMOKE.md) for the first owner run.
 
 ## 6. Recovery
 

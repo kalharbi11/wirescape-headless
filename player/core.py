@@ -23,7 +23,7 @@ from . import API_VERSION, VERSION, bundle as B, state as S, taper
 from .catalogue import Catalogue
 from .check import check as check_bundle, ERROR, WARNING
 from .engine import AdapterFactory
-from scripting.wsrun import Script, ScriptError, resolve_script, print_config
+from scripting.wsrun import Script, ScriptError, resolve_script, print_config, has_player_mapping
 
 RESTART_INITIAL = 0.25
 RESTART_MAX = 30.0
@@ -401,6 +401,10 @@ class PlayerCore:
             resolved = self._resolve(control["target"]) if control else None
             if resolved is None:
                 continue
+            if resolved.get("script_kind") == "button":
+                if trigger:
+                    await self.cmd_set({"control": cid, "value": 1})
+                continue
             if binding.get("takeover") == "pickup":
                 key = (n, *physical, resolved["key"])
                 value = self._current_value(resolved)
@@ -458,6 +462,12 @@ class PlayerCore:
                "min": 0, "max": 1, "step": 0, "unit": "", "taper": "linear", "choices": None,
                "value": None, "norm": None, "display": "", "resolved": r is not None}
         if r is None:
+            if form == "script":
+                script = self.scripts.get(t["script"]["file"])
+                declared = next((d for d in (script.declaration or {}).get("controls", [])
+                                 if d.get("id") == t["script"]["control"]), None) if script else None
+                if declared is not None:
+                    doc["kind"] = "invalid"
             return doc
         meta, key, value = r["meta"], r["key"], self._current_value(r)
         doc.update(min=meta["minimum"], max=meta["maximum"], step=meta.get("step", 0), unit=meta.get("unit", ""),
@@ -465,6 +475,8 @@ class PlayerCore:
                    norm=taper.value_to_norm(meta, value) if value is not None else None,
                    display=taper.display(meta, value) if value is not None else "")
         doc["key"] = key
+        if r.get("script_kind") == "button":
+            doc["momentary"] = True
         return doc
 
     def _label(self, t: dict, r: dict | None) -> str:
@@ -522,6 +534,8 @@ class PlayerCore:
                 step, choices = control.get("step", 0), None
                 if not all(_finite(n) for n in (lo, hi, default, step)) or hi <= lo or step < 0:
                     return None
+            elif kind == "button":
+                lo, hi, default, step, choices = 0, 1, None, 1, None
             elif kind == "toggle":
                 lo, hi, default, step, choices = 0, 1, int(bool(control.get("default"))), 1, None
             elif kind == "dropdown":
@@ -549,6 +563,8 @@ class PlayerCore:
         return r["meta"].get("default")
 
     def _current_value(self, r: dict) -> float | None:
+        if r.get("script_kind") == "button":
+            return None
         live = self.values.get(self.current["index"], {})
         return live.get(r["key"], self._patch_value(r))
 
@@ -669,8 +685,9 @@ class PlayerCore:
         for config in entry.scripts if entry else []:
             file = config["file"]
             script = self.scripts.get(file)
-            result.append({"file": file, **(copy.deepcopy(script.doc()) if script else
-                           {"state": "stopped", "restarts": 0, "controls": []})})
+            doc = copy.deepcopy(script.doc()) if script else {"state": "stopped", "restarts": 0, "controls": []}
+            doc["controls"] = [c for c in doc["controls"] if isinstance(c, dict) and has_player_mapping(c)]
+            result.append({"file": file, **doc})
         return result
 
     def _script_changed(self, script: Script) -> None:
@@ -718,7 +735,7 @@ class PlayerCore:
                     if key.startswith(prefix):
                         cid = key[len(prefix):]
                         r = self._resolve({"script": {"file": file, "control": cid}})
-                        if r:
+                        if r and r.get("script_kind") != "button":
                             script.values[cid] = self._script_wire_value(r, taper.quantize(r["meta"], value))
                 await script.start()
             except (OSError, ValueError, ScriptError) as exc:
@@ -883,6 +900,11 @@ class PlayerCore:
             await self._engine_ok({"type": "setModAmount", "amount": value,
                                    "connection": {"kind": "modulation", "from": c["from"], "to": c["to"]}})
         elif r["form"] == "script":
+            if r.get("script_kind") == "button":
+                if value is not None and value >= .5:
+                    if not await r["script"].press(r["control"]):
+                        raise CommandError("unavailable", "script is not accepting presses")
+                return
             await r["script"].control(r["control"], self._script_wire_value(r, value))
         self.values.setdefault(self.current["index"], {})[r["key"]] = value
         self._dirty_values[r["key"]] = {"value": value, "norm": taper.value_to_norm(r["meta"], value)}
