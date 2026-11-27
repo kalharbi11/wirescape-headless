@@ -24,24 +24,23 @@ Tasks are GitHub issues labelled `task`. Nobody is assigned: any agent session t
    `status/blocked` on the task.
 
 ## Bundles
+Bundles A–F are merged (H-0…H-11; #11 closed by A108). The open work, in order (Architect, 2026-11-26):
+
 | Bundle | Tasks | Needs merged first | Notes |
 |---|---|---|---|
-| — | H-0 [#2](https://github.com/kalharbi11/wirescape-headless/issues/2) CI skeleton | — | in review with bundle A in [#16](https://github.com/kalharbi11/wirescape-headless/pull/16) (claude-architect) |
-| **A** | H-1 [#3](https://github.com/kalharbi11/wirescape-headless/issues/3) API schema + fake · H-2 [#4](https://github.com/kalharbi11/wirescape-headless/issues/4) `player.json` + check | H-0 | **in review** in [#16](https://github.com/kalharbi11/wirescape-headless/pull/16) (claude-architect); the reviewer merges it and B, C, D open |
-| **B** | H-3 [#5](https://github.com/kalharbi11/wirescape-headless/issues/5) core · H-5 [#6](https://github.com/kalharbi11/wirescape-headless/issues/6) install and boot | H-1 | |
-| **C** | H-10 [#7](https://github.com/kalharbi11/wirescape-headless/issues/7) runner and helper | H-1 | runs in parallel with B and D |
-| **D** | H-6 [#8](https://github.com/kalharbi11/wirescape-headless/issues/8) reference UI · H-9 [#9](https://github.com/kalharbi11/wirescape-headless/issues/9) UI guide | H-1 | runs in parallel with B and C |
-| **E** | H-4 [#10](https://github.com/kalharbi11/wirescape-headless/issues/10) real engine in CI · H-11 [#11](https://github.com/kalharbi11/wirescape-headless/issues/11) scripts in the Player | H-3 (H-11 also H-10) | the first `LAB_PIN` bump |
-| **F** | H-7 [#12](https://github.com/kalharbi11/wirescape-headless/issues/12) hardware map + PC · H-8 [#13](https://github.com/kalharbi11/wirescape-headless/issues/13) systemd + Pi guide | H-3, H-5 | H-7's H1 part waits on lab P1-e being pinned |
-| **G** | H-12 [#14](https://github.com/kalharbi11/wirescape-headless/issues/14) soak protocol · H-G [#15](https://github.com/kalharbi11/wirescape-headless/issues/15) guides | H-7, H-10, H-11 | board pages may start any time |
+| **H** (now) | H-13 [#24](https://github.com/kalharbi11/wirescape-headless/issues/24) Pi engine build + hardware smoke runbook · H-11a [#25](https://github.com/kalharbi11/wirescape-headless/issues/25) script buttons (A108) · H-14 [#26](https://github.com/kalharbi11/wirescape-headless/issues/26) pin bump to P1-e | H-13, H-11a: none. H-14: lab [#672](https://github.com/kalharbi11/wirescape-lab/issues/672) P1-e on lab `main` | **The early hardware test point:** the owner builds on the Pi and runs `HARDWARE_SMOKE.md`. H-13 and H-11a are free now; H-14 waits on the lab |
+| **G** | H-G [#15](https://github.com/kalharbi11/wirescape-headless/issues/15) guides | H-7, H-10 (merged) | free now; may run in parallel with H; SCRIPTING cites the H-11a button semantics once that merges |
+| **I** (later) | H-12 [#14](https://github.com/kalharbi11/wirescape-headless/issues/14) soak protocol + the P1-e2 pin bump | H-14, lab P1-e2 (control OSC port), the owner's first smoke result | moved out of G: soak waits on OSC stability and a first hardware run |
+
+**Early hardware test path:** H-13 → the owner runs the smoke test (device-off, then consent) → lab P1-e → H-14 →
+the owner re-runs the MIDI-controller steps. Soak, latency and UI-cost facts (H-f1–H-f3) stay unmeasured until bundle I.
 
 **One PR, three tasks (2026-11-26):** H-0, H-1 and H-2 went into one PR, because this session may push to only one branch. Later tasks use one PR each.
 
-**Parallelism:** after A merges, three sessions can run B, C and D at once. Bundle E needs B. Bundle F
-needs B, and its real-engine part also needs lab P1-e. That makes the Player-on-hardware path
-P0 → P1-e → H-7 → H-f1 (0025 §6.1).
+**Parallelism:** H-13, H-11a and H-G can run at once. The Player-on-hardware path is
+P0 → P1-e → H-14 → H-f1 (0025 §6.1).
 
-**Labels:** `task`, `bundle/A`…`bundle/G`, `status/open` → `status/claimed` → `status/review` → closed;
+**Labels:** `task`, `bundle/A`…`bundle/I`, `status/open` → `status/claimed` → `status/review` → closed;
 `status/blocked` when a lab change is needed.
 
 Signed: claude-architect, 2026-11-26
