@@ -8,7 +8,7 @@ first). Patches are built in Wirescape Studio
 
 **Design:** lab [`proposals/0025`](https://github.com/kalharbi11/wirescape-lab/blob/main/proposals/0025-player-osc-scripts-tools.md)
 (Planner run 2b, final). Macros and mapping come from lab `proposals/0024` §3 and §6.
-**Status:** see [`docs/TASKS.md`](docs/TASKS.md) for the active tasks and pinned-engine limitations.
+**Status:** see [`TASKS.md`](TASKS.md) → [`docs/TASKS.md`](docs/TASKS.md) for the active tasks and pinned-engine limitations.
 
 ```
 Studio (full UI) ── bundle export ──► bundle: patches/ + player.json + scripts/ + presets/
@@ -18,6 +18,17 @@ Studio (full UI) ── bundle export ──► bundle: patches/ + player.json +
   (reference UI, or your own)                          │                                     (lab build at LAB_PIN)
                                                        └── one supervised process per script (OSC to the engine)
 ```
+
+## Agent runs
+
+Read [AGENTS.md](AGENTS.md), [TASKS.md](TASKS.md) and your task issue on every start or resume.
+`headless: run` and numbered builder-session triggers use the same unassigned bundle pool.
+Resume an existing claim before taking new work; one task/branch/PR and one open PR per bundle.
+
+Use connected GitHub tools to publish and Actions for routine tests, even if shell clone/DNS fails.
+Check actual current-head H0/H1 jobs/logs: a draft's green gate may mean skipped tests.
+Use an appropriate Codex checkout for live reference-UI, screenshot and alternate-pin evidence.
+H2 and hardware runs remain owner-requested/owner-run under AGENTS.md.
 
 ## What each part does
 - **Player service** (`player/`, Python 3.11+, standard library only):
