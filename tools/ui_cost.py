@@ -68,12 +68,16 @@ def validate_run(run, ui):
         t = s.get("t")
         require(type(t) in (float, int) and math.isfinite(t), "invalid timestamp")
         require(s.get("engine_running") is True, "engine not running")
+        require(s.get("player_fake") is False, "real Player identity unavailable or fake")
+        require(s.get("audio_state") == "running", "real audio output not running")
         for key in ("engine_restarts", "patch_index", "dropouts"):
             require(integer(s.get(key)), "missing/invalid " + key)
         settings = s.get("audio_settings")
         require(isinstance(settings, dict) and
                 all(integer(settings.get(k)) and settings[k] > 0
                     for k in ("sampleRate", "bufferFrames")), "missing audio settings")
+        device = settings.get("deviceId")
+        require(isinstance(device, str) and bool(device.strip()), "missing real audio device ID")
         for key in ("engine_restarts", "patch_index", "audio_settings", "invocation"):
             require(s.get(key) == first.get(key), "changed " + key)
         require(s.get("ui_active") is ui, "unexpected kiosk state")
@@ -186,7 +190,10 @@ def engine_sample():
         state = json.load(response)
     engine = state["engine"]
     audio = engine.get("audio") or {}
+    player = state.get("player") or {}
     return {"engine_running": engine.get("state") == "running",
+            "player_fake": player.get("fake"),
+            "audio_state": audio.get("state"),
             "engine_restarts": engine.get("restarts"),
             "patch_index": state["current"].get("index"),
             "audio_settings": {k: audio.get(k) for k in ("sampleRate", "bufferFrames", "deviceId")},
