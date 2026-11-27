@@ -102,6 +102,7 @@ class PlayerCore:
         self.initial = initial
         self._save_handle: asyncio.TimerHandle | None = None
         self._good_saved = False
+        self._boot_target: int | None = None
         self._killed = None  # the engine the watchdog killed (kill once per engine)
         self._debounce: asyncio.TimerHandle | None = None
         self._debounce_target: int | None = None
@@ -121,12 +122,8 @@ class PlayerCore:
             self.values = {i: v for i, v in S.values_of(init).items() if i < len(self.bundle.entries)}
             if isinstance(init.get("index"), int) and init["index"] < len(self.bundle.entries):
                 first = init["index"]
+        self._boot_target = first if self.bundle.entries else None
         await self._start_engine()
-        if self.bundle.entries and self.current["index"] is None:
-            try:
-                await self.select(first)
-            except CommandError as e:
-                log.warning("boot load of entry %s failed: %s", first, e.message)
 
     async def close(self) -> None:
         self._stopping = True
@@ -174,6 +171,11 @@ class PlayerCore:
             await self._engine_request({"type": "controllerStream", "kinds": ["cc", "note", "osc", "pc"]})
         if self.current["index"] is not None:
             await self._load(self.current["index"], reason="restart")
+        elif self._boot_target is not None:
+            try:
+                await self.select(self._boot_target)
+            except CommandError as e:
+                log.warning("boot load of entry %s failed: %s", self._boot_target, e.message)
 
     def _on_exit(self, eng, code, signal) -> None:
         if eng is not self.engine:
@@ -483,6 +485,7 @@ class PlayerCore:
         self._inflight = None
         if reply.get("ok"):
             self.current.update(index=index, error=None)
+            self._boot_target = None
             self.patch = self.bundle.load_patch(e)
             self._refresh_warnings()
             self.save_now()  # every switch saves (0025 §2.3)
