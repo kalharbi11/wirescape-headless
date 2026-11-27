@@ -190,9 +190,7 @@ class Script:
         return await self._write({"type": "control", "id": cid, "value": 1})
 
     def doc(self) -> dict:
-        controls = [c for c in (self.declaration or {}).get("controls", [])
-                    if isinstance(c, dict) and has_player_mapping(c)]
-        return {"state": self.state, "restarts": self.restarts, "controls": controls}
+        return {"state": self.state, "restarts": self.restarts, "controls": (self.declaration or {}).get("controls", [])}
 
     # -- internals -----------------------------------------------------------------
 
