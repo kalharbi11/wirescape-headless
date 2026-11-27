@@ -28,12 +28,18 @@ Bundles A–F are merged (H-0…H-11; #11 closed by A108). The open work, in ord
 
 | Bundle | Tasks | Needs merged first | Notes |
 |---|---|---|---|
-| **H** (now) | H-13 [#24](https://github.com/kalharbi11/wirescape-headless/issues/24) Pi engine build + hardware smoke runbook · H-11a [#25](https://github.com/kalharbi11/wirescape-headless/issues/25) script buttons (A108) · H-14 [#26](https://github.com/kalharbi11/wirescape-headless/issues/26) pin bump to P1-e | H-13, H-11a: none. H-14: lab [#672](https://github.com/kalharbi11/wirescape-lab/issues/672) P1-e on lab `main` | **The early hardware test point:** the owner builds on the Pi and runs `HARDWARE_SMOKE.md`. H-13 and H-11a are free now; H-14 waits on the lab |
+| **H** (now) | H-13 [#24](https://github.com/kalharbi11/wirescape-headless/issues/24) Pi engine build + hardware smoke runbook · H-11a [#25](https://github.com/kalharbi11/wirescape-headless/issues/25) script buttons (A108) · H-14 [#26](https://github.com/kalharbi11/wirescape-headless/issues/26) pin bump to P1-e | H-13, H-11a: none. H-14: lab [#672](https://github.com/kalharbi11/wirescape-lab/issues/672) P1-e on lab `main` | **The early hardware test point:** the owner builds on the Pi and runs `HARDWARE_SMOKE.md`. P1-e merged at `992d599`; H-14 uses the mapped-parameter witness under A113 |
 | **G** | H-G [#15](https://github.com/kalharbi11/wirescape-headless/issues/15) guides | H-7, H-10 (merged) | free now; may run in parallel with H; SCRIPTING cites the H-11a button semantics once that merges |
 | **I** (later) | H-12 [#14](https://github.com/kalharbi11/wirescape-headless/issues/14) soak protocol + the P1-e2 pin bump | H-14, lab P1-e2 (control OSC port), the owner's first smoke result | moved out of G: soak waits on OSC stability and a first hardware run |
 
 **Early hardware test path:** H-13 → the owner runs the smoke test (device-off, then consent) → lab P1-e → H-14 →
 the owner re-runs the MIDI-controller steps. Soak, latency and UI-cost facts (H-f1–H-f3) stay unmeasured until bundle I.
+
+**A113 (2026-11-27):** Macro row: deferred to the MOD-5 pin (A113). The first pin after
+[wirescape-test MOD-5 #8](https://github.com/kalharbi11/wirescape-test/issues/8) promotion must prove
+CC → Macro → `values` with the real engine; [lab #711](https://github.com/kalharbi11/wirescape-lab/issues/711)
+tracks that row. H-14's mapped raw-parameter witness is accepted for early hardware smoke. H-f1 stays
+unmeasured until bundle I's separate lab workload extension (100 CC/s across eight continuous controllers).
 
 **One PR, three tasks (2026-11-26):** H-0, H-1 and H-2 went into one PR, because this session may push to only one branch. Later tasks use one PR each.
 
