@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-3.0-only
+[Unit]
+Description=Wirescape Player
+After=local-fs.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=wirescape-player
+Group=wirescape-player
+StateDirectory=wirescape-player
+WorkingDirectory=/opt/wirescape-headless
+ExecStart=/usr/bin/python3 -m player run --state /var/lib/wirescape-player --engine /opt/wirescape-headless/bin/wirescape-engine --engine-arg=--null-audio
+Restart=always
+KillMode=mixed
+TimeoutStopSec=8
+WatchdogSec=10
+
+[Install]
+WantedBy=multi-user.target
