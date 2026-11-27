@@ -56,6 +56,13 @@ class SwitchWitness(unittest.IsolatedAsyncioTestCase):
             patches.append((address, node, out))
 
         class CaptureEngine(EngineProcess):
+            status_by_gen = None
+
+            def _dispatch(self, msg):
+                if msg.get('session') == self.session and msg.get('type') == 'status':
+                    self.status_by_gen = (str(msg.get('gen')), msg['status'].get('osc', {}))
+                super()._dispatch(msg)
+
             async def request(self, msg):
                 reply = await super().request(msg)
                 if msg["type"] == "loadGraph" and reply.get("ok"):
@@ -77,13 +84,51 @@ class SwitchWitness(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(receiver.close)
         self.addCleanup(sender.close)
         receiver.bind(("127.0.0.1", w.PORT_OUT))
+        receiver.setblocking(False)
+        # Prime the capture executor outside all timed observations. UDP receipt
+        # itself stays on the loop, avoiding executor startup/dispatch latency.
+        await asyncio.to_thread(lambda: None)
         await core.start()
         self.assertEqual(core.current["index"], 0, core.current)
         address = patches[0][0]
         marks = []
 
-        async def wait_receive(deadline, expected, retired_gate=None):
-            await asyncio.to_thread(w.receive_until, receiver, deadline, expected, retired_gate)
+        async def wait_route(node, out):
+            deadline = time.monotonic() + 5  # same readiness bound as lab oracle
+            while time.monotonic() < deadline:
+                observed = eng.status_by_gen
+                if observed and observed[0] == str(eng.swap['gen']):
+                    osc = observed[1]
+                    routes, outputs = osc.get('routes', []), osc.get('out', [])
+                    if (osc.get('enabled') and not osc.get('lan') and len(routes) == len(outputs) == 1
+                            and str(routes[0].get('module')) == str(node) and routes[0].get('port') == w.PORT_IN
+                            and routes[0].get('bind') == '127.0.0.1' and routes[0].get('state') == 'listening'
+                            and osc.get('last_error') != 'port-busy'
+                            and str(outputs[0].get('module')) == str(out) and outputs[0].get('port') == w.PORT_OUT
+                            and outputs[0].get('state') == 'sending'):
+                        return
+                await asyncio.sleep(.005)
+            self.fail(f'route not ready: gen={eng.swap["gen"]}, status={eng.status_by_gen}')
+
+        async def wait_receive(deadline, expected, retired_gate=None, sent=None):
+            pending = set(expected)
+            loop = asyncio.get_running_loop()
+            observed = []
+            try:
+                while pending:
+                    remaining = deadline - time.monotonic()
+                    w.require(remaining > 0, f'OSC receive deadline: {pending}')
+                    payload, source = await asyncio.wait_for(loop.sock_recvfrom(receiver, 1500), remaining)
+                    w.require(source[0] == '127.0.0.1', 'non-loopback packet')
+                    received = w.decode(payload)
+                    observed.append((round(time.monotonic(), 6), received))
+                    if retired_gate is not None and received == retired_gate:
+                        w.require(retired_gate in pending, 'duplicate retired OSC gate zero')
+                    pending.discard(received)
+                w.require(time.monotonic() <= deadline, 'OSC deadline exceeded')
+            except (TimeoutError, w.SoakFailure) as exc:
+                self.fail(f'{exc!r}; pending={pending}; sent={sent}; deadline={deadline}; '
+                          f'now={time.monotonic()}; route={eng.status_by_gen}; packets={observed[-16:]}')
 
         async def offered_load():
             value = 0.0
@@ -92,11 +137,13 @@ class SwitchWitness(unittest.IsolatedAsyncioTestCase):
                 value = 1.0 - value
                 await asyncio.sleep(.005)
 
+        await wait_route(patches[0][1], patches[0][2])
         load = asyncio.create_task(offered_load())
         try:
             # Establish that the first route actually works before starting.
+            sent = time.monotonic()
             sender.sendto(w.packet(address + "/in", .5), ("127.0.0.1", w.PORT_IN))
-            await wait_receive(time.monotonic() + 2, {(address + "/echo", (.5,))})
+            await wait_receive(sent + 2, {(address + "/echo", (.5,))}, sent=sent)
             for n in range(1, count + 1):
                 held = await eng.request({"type": "noteOn", "note": 60, "velocity": .5})
                 self.assertTrue(held["ok"], held)
@@ -119,12 +166,13 @@ class SwitchWitness(unittest.IsolatedAsyncioTestCase):
                 old = address
                 address, node, out = patches[target]
                 value = n / 2048
+                sent = time.monotonic()
                 sender.sendto(w.packet(address + "/in", value), ("127.0.0.1", w.PORT_IN))
                 # Both the new route sentinel and the old gate release must
                 # actually arrive. No retry or widened deadline.
                 retired_gate = (old + "/gate", (0.0,))
                 await wait_receive(acknowledged + .050, {
-                    (address + "/echo", (value,)), retired_gate}, retired_gate)
+                    (address + "/echo", (value,)), retired_gate}, retired_gate, sent=sent)
                 swap = eng.swap
                 await asyncio.to_thread(w.wait_for_swap_capture, capture, swap["re"], int(swap["gen"]), 5.0)
                 await asyncio.to_thread(w.assert_no_duplicate_retired_gate, receiver, retired_gate)

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Regenerates tests/data/taper_vectors.json from the lab's own taper maths.
 // The three functions below are copied, types removed, from lab
-// apps/studio/src/modules/registry.ts at LAB_PIN (95553fe). Run: node tools/taper_vectors.mjs
+// apps/studio/src/modules/registry.ts at LAB_PIN (302bd473). Run: node tools/taper_vectors.mjs
 import { readFileSync, writeFileSync } from 'node:fs';
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
 function quantize(p, v) {
