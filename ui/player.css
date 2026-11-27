@@ -24,7 +24,7 @@ section{margin-bottom:12px}
 .control{padding:8px 10px;border:1px solid #465058;border-radius:6px;min-width:0;background:var(--surface)}
 .control label{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .control input,.control select{display:block;width:100%;accent-color:var(--accent)}
-.control output{color:var(--accent);font-variant-numeric:tabular-nums}
+.control .value{color:var(--accent);font-variant-numeric:tabular-nums}
 .setlist{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
 .setlist button{text-align:left;overflow-wrap:anywhere}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0;font:inherit}

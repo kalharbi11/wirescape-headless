@@ -76,7 +76,9 @@ class ReferenceUI(unittest.TestCase):
         expect(self.page.get_by_role("button", name="Restart engine")).to_be_enabled()
         self.menu("Status")
         expect(self.page.get_by_text("Bundle check", exact=True)).to_be_visible()
+        before = self.page.request.get(self.origin + "/api/v1/state").json()["engine"]["restarts"]
         self.command({"type": "fake.inject", "what": "engineCrash"})
+        expect(self.page.locator("pre[data-detail=Engine]")).to_contain_text(f'"restarts": {before + 1}', timeout=10000)
         expect(self.page.get_by_role("status")).to_contain_text("running", timeout=10000)
 
     def test_script_unavailable_is_visible(self):

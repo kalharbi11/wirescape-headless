@@ -29,8 +29,9 @@ async function command(type, fields = {}) {
 function act(type, fields = {}) { return command(type,fields).catch(()=>null); }
 function title() {
   const entry = state?.setlist.find(x=>x.index===state.current.index);
-  banner.textContent = (online?"Connected":"Disconnected — reconnecting")+" · "+(state?.engine.state || "waiting")+" · "+(entry?.title || "No patch")+
+  const message = (online?"Connected":"Disconnected — reconnecting")+" · "+(state?.engine.state || "waiting")+" · "+(entry?.title || "No patch")+
     (state?.current.switching?" · Switching…":"")+(state?.current.error?" · "+state.current.error:"");
+  if(banner.textContent!==message) banner.textContent=message;
 }
 function group(parent,name) { const s=el("section",null,parent);el("h2",name,s);return s; }
 function row(parent) { return el("div",null,parent,{class:"row"}); }
@@ -40,7 +41,7 @@ function numeric(parent,label,meta,value,norm,key,fields,disabled=false) {
   const box=el("div",null,parent,{class:"control"});
   const id="control-"+root.querySelectorAll(".control").length;
   const lab=el("label",label,box,{for:id});
-  const out=el("output",format(value,meta.unit),lab);
+  const out=el("span",format(value,meta.unit),lab,{class:"value"});
   let input;
   if (Array.isArray(meta.choices)&&meta.choices.length) {
     input=el("select",null,box,{id,"aria-label":label});
@@ -52,7 +53,9 @@ function numeric(parent,label,meta,value,norm,key,fields,disabled=false) {
   }
   input.disabled=disabled;
   if(disabled) out.textContent="Unavailable";
-  let pending=false;
+  let pending=false, dragging=false;
+  input.addEventListener('pointerdown',()=>{dragging=true;});
+  for(const kind of ['pointerup','pointercancel','lostpointercapture','blur']) input.addEventListener(kind,()=>{dragging=false;});
   input.addEventListener("change",async()=>{
     pending=true;
     const result=await act("set",{...fields,...(input.tagName==="SELECT"?{value:Number(input.value)}:{norm:Number(input.value)})});
@@ -63,7 +66,7 @@ function numeric(parent,label,meta,value,norm,key,fields,disabled=false) {
   function update(v) {
     if(disabled||pending) return;
     value=v.value;norm=v.norm;out.textContent=format(value,meta.unit);
-    if(document.activeElement!==input) input.value=String(input.tagName==="SELECT"?value:norm??0);
+    if(!dragging) input.value=String(input.tagName==="SELECT"?value:norm??0);
   }
   bind(key,update);
 }
@@ -130,7 +133,11 @@ async function devices(g) {
     cb.checked=!!dev.enabled;el("label",dev.name,r,{for:cb.id});cb.addEventListener("change",async()=>{if(!await act("midi.enable",{deviceId:dev.id,on:cb.checked}))cb.checked=!cb.checked;});
   }
 }
-function details(parent,name,content){el("pre",JSON.stringify(content,null,2),group(parent,name));}
+function details(parent,name,content){const p=el("pre",JSON.stringify(content,null,2),group(parent,name));p.dataset.detail=name;return p;}
+function refreshStatus(){
+  const fields={"Engine":state.engine,"OSC routes":state.osc,"Controller drops":state.engine.controllerDrops??state.osc.controllerDrops??"Not reported by this Player version","Bundle check":state.bundle.check,"Warnings":state.warnings};
+  for(const p of root.querySelectorAll("pre[data-detail]")) { const v=JSON.stringify(fields[p.dataset.detail],null,2); if(p.textContent!==v)p.textContent=v; }
+}
 function status() {
   details(root,"Engine",state.engine);
   details(root,"OSC routes",state.osc);
@@ -172,5 +179,5 @@ events.addEventListener("status",e=>{
   const d=JSON.parse(e.data);if(!state||state.rev!==d.rev)return;
   Object.assign(state.engine,d.engine);state.osc=d.osc||state.osc;
   if(d.scripts?.length)state.scripts=d.scripts;
-  title();if(menu==="Status"&&!root.contains(document.activeElement))render();
+  title();if(menu==="Status")refreshStatus();
 });
