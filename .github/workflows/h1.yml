@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # H1 (lab proposals/0025 §5.3): ready (non-draft) PRs and main.
-# H-11 brings forward the shared pinned engine build for PG4. H-4 expands it to the full integration suite.
+# Builds the pinned engine on linux-x64 and linux-arm64; devices remain off.
 # Required check: "H1 gate".
 name: H1
 on:
@@ -43,8 +43,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-engine
-      - name: Real engine PG4 script crash and control replay
-        run: python -m unittest discover -s tests/integration -p 'test_real_script.py' -v
+      - name: Catalogue parity with actual pinned hello
+        run: python tools/catalogue.py "$WIRESCAPE_ENGINE" --check --observed "$RUNNER_TEMP/catalogue-observed.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: catalogue-${{ matrix.os }}
+          path: ${{ runner.temp }}/catalogue-observed.json
+          if-no-files-found: warn
+      - name: Real engine acceptance (null audio)
+        if: always() && env.WIRESCAPE_ENGINE != ''
+        run: python -m unittest discover -s tests/integration -p 'test_*.py' -v
   ui:
     needs: scope
     if: needs.scope.outputs.ready == 'true' && needs.scope.outputs.code == 'true'
