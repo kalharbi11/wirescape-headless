@@ -36,7 +36,10 @@ class RealScript(unittest.IsolatedAsyncioTestCase):
              "pages": [{"title": "Script", "controls": ["dens"]}]}])
         tb = TempBundle(config)
         self.addCleanup(tb.cleanup)
-        (tb.root / "scripts/probe.py").write_text(SCRIPT)
+        # Independent gate witnesses the child applying the recalled control,
+        # rather than requiring OSC Out to resend an unchanged CV.
+        probe = SCRIPT.replace('density = ws.knob', 'replay_gate = ws.gate("Replayed", address="/test/replayed")\ndensity = ws.knob').replace('    gate.on()', '    gate.on()\n    replay_gate.send(float(density.value == 1.5))')
+        (tb.root / "scripts/probe.py").write_text(probe)
         patch = json.loads((tb.root / "patches/basics-01-first-tone.json").read_text())
         def row(address, kind):
             return dict(pattern=address, argument=0, kind=kind, input_min=0, input_max=1,
@@ -45,11 +48,11 @@ class RealScript(unittest.IsolatedAsyncioTestCase):
                         stale="zero" if kind == "gate" else "hold")
         patch["modules"] += [
             dict(id=101, module="osc.in", config=dict(port=port_in, lan=False,
-                rows=[row("/test/gate", "gate"), row("/test/value", "cv")] + [dict(enabled=False) for _ in range(6)])),
+                rows=[row("/test/gate", "gate"), row("/test/value", "cv"), row("/test/replayed", "gate")] + [dict(enabled=False) for _ in range(5)])),
             dict(id=102, module="osc.out", config=dict(port=port_out, rate_hz=100,
-                rows=[dict(address="/echo/gate", kind="gate"), dict(address="/echo/value", kind="cv", deadband=0)]
-                + [dict(enabled=False) for _ in range(6)]))]
-        for port in ("row1", "row2"):
+                rows=[dict(address="/echo/gate", kind="gate"), dict(address="/echo/value", kind="cv", deadband=0),
+                      dict(address="/echo/replayed", kind="gate")] + [dict(enabled=False) for _ in range(5)]))]
+        for port in ("row1", "row2", "row3"):
             patch["connections"].append(dict(kind="signal", **{
                 "from": dict(module=101, port=port), "to": dict(module=102, port=port)}))
         (tb.root / "patches/script-probe.json").write_text(json.dumps(patch))
@@ -72,25 +75,69 @@ class RealScript(unittest.IsolatedAsyncioTestCase):
             V["reply"].validate(reply)
             self.assertTrue(reply["ok"], reply)
 
-        async def receive(address, value):
-            loop = asyncio.get_running_loop()
+        loop = asyncio.get_running_loop()
+        packets = []
+        changed = asyncio.Event()
+
+        async def collect():
+            while True:
+                packet, source = await loop.sock_recvfrom(rx, 2048)
+                self.assertEqual(source[0], "127.0.0.1")
+                address = packet.split(b"\0", 1)[0].decode("ascii")
+                value = struct.unpack(">f", packet[-4:])[0]
+                packets.append((loop.time(), address, value))
+                changed.set()
+
+        collector = asyncio.create_task(collect())
+
+        async def stop_collector():
+            collector.cancel()
+            await asyncio.gather(collector, return_exceptions=True)
+
+        self.addAsyncCleanup(stop_collector)
+
+        async def receive(address, value, start=0):
             deadline = loop.time() + 6
-            while loop.time() < deadline:
-                packet = await asyncio.wait_for(loop.sock_recv(rx, 2048), deadline - loop.time())
-                if packet.startswith(address.encode() + b"\0") and abs(struct.unpack(">f", packet[-4:])[0] - value) < 1e-5:
-                    return
-            self.fail(f"missing real engine OSC echo {address} {value}")
+            cursor = start
+            while True:
+                if collector.done():
+                    collector.result()
+                while cursor < len(packets):
+                    _, addr, actual = packets[cursor]
+                    cursor += 1
+                    if addr == address and abs(actual - value) < 1e-5:
+                        return cursor
+                changed.clear()
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                try:
+                    await asyncio.wait_for(changed.wait(), remaining)
+                except TimeoutError:
+                    break
+            active = core.scripts.get("scripts/probe.py")
+            self.fail(f"missing {address}={value}; packets={packets[-32:]}; "
+                      f"script={active.doc() if active else None}; "
+                      f"saved={active.values if active else None}; osc={core.osc_status}")
 
         await cmd(type="select", index=1)
         pid = eng.pid
         await receive("/echo/gate", 1)
+        before_set = len(packets)
         await cmd(type="set", control="dens", value=1.5)
-        await receive("/echo/value", .75)
+        await receive("/echo/value", .75, before_set)
+        await receive("/echo/replayed", 1, before_set)
         script = core.scripts["scripts/probe.py"]
+        old_pid = script.proc.pid
+        self.assertEqual(script.values["density"], 1.5)
+        before_crash = len(packets)
         script.proc.kill()
-        await receive("/echo/gate", 0)
-        await receive("/echo/gate", 1)
-        await receive("/echo/value", .75)
+        normal_zero = await receive("/echo/gate", 0, before_crash)
+        replay_zero = await receive("/echo/replayed", 0, before_crash)
+        await receive("/echo/gate", 1, normal_zero)
+        await receive("/echo/replayed", 1, replay_zero)
+        self.assertNotEqual(script.proc.pid, old_pid)
+        self.assertEqual(script.values["density"], 1.5)
         self.assertGreaterEqual(script.restarts, 1)
         self.assertEqual(eng.pid, pid)
         self.assertEqual(core.engine_info["restarts"], 0)
