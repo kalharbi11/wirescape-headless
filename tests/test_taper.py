@@ -22,5 +22,5 @@ class TaperTests(unittest.TestCase):
                 self.assertAlmostEqual(taper.value_to_norm(p, v), want, places=9, msg=(row["module"], row["param"], v))
 
     def test_display_uses_choice_labels(self):
-        p = Catalogue.load().param("essentials.clock", "run")
+        p = {"choices": [{"value": 0, "label": "Stop"}, {"value": 1, "label": "Run"}]}  # optional metadata, absent at this pin
         self.assertEqual(taper.display(p, 1), "Run")

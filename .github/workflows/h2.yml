@@ -1,17 +1,33 @@
 # SPDX-License-Identifier: GPL-3.0-only
-# H2 (lab proposals/0025 §5.3): owner-requested only. The 200-switch test arrives with H-4/H-12.
-# Pi soaks, H-f1 and H-f2 are the owner's device runs; their numbers go to lab facts/.
+# H2 owner-requested only; hardware soaks remain owner runs.
 name: H2
 on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: h2-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  switch200:
+  scope:
     runs-on: ubuntu-24.04
     steps:
+      - run: echo "Owner-requested switch test"
+  switch200:
+    needs: scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
       - uses: actions/checkout@v4
-      - name: Placeholder until the switch test exists
-        run: |
-          if [ -d tests/integration ]; then echo "H-4 must replace this step"; exit 1; fi
-          echo "No integration suite yet (H-4)."
+      - uses: ./.github/actions/build-engine
+      - name: 200 API switches, null audio
+        env:
+          WIRESCAPE_SWITCH_COUNT: "200"
+        run: python -m unittest discover -s tests/integration -p 'test_switch_witness.py' -v
+  gate:
+    name: H2 gate
+    if: always()
+    needs: [scope, switch200]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: test "${{ needs.scope.result }}" = success && test "${{ needs.switch200.result }}" = success

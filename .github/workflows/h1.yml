@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # H1 (lab proposals/0025 §5.3): ready (non-draft) PRs and main.
-# H-0 runs the pin check only; H-4 adds the engine build at LAB_PIN on linux-x64 and
-# linux-arm64 (ccache keyed by LAB_PIN and toolchain) and the --null-audio integration suite.
+# Builds the pinned engine on linux-x64 and linux-arm64; devices remain off.
 # Required check: "H1 gate".
 name: H1
 on:
@@ -43,13 +42,18 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/build-engine
+      - name: Catalogue parity with actual pinned hello
+        run: python tools/catalogue.py "$WIRESCAPE_ENGINE" --check --observed "$RUNNER_TEMP/catalogue-observed.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          python-version: "3.11"
-      - name: LAB_PIN fetchable from the lab
-        run: python tools/labpin.py verify --remote
-      - name: Fetch the lab at the pin
-        run: python tools/labpin.py fetch "$RUNNER_TEMP/lab" && test -f "$RUNNER_TEMP/lab/tools/dev.py"
+          name: catalogue-${{ matrix.os }}
+          path: ${{ runner.temp }}/catalogue-observed.json
+          if-no-files-found: warn
+      - name: Real engine acceptance (null audio)
+        if: always() && env.WIRESCAPE_ENGINE != ''
+        run: python -m unittest discover -s tests/integration -p 'test_*.py' -v
   ui:
     needs: scope
     if: needs.scope.outputs.ready == 'true' && needs.scope.outputs.code == 'true'
