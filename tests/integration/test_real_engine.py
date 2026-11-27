@@ -2,6 +2,9 @@
 """H-4 real-engine acceptance, explicitly invoked by H1/H2, never by H0."""
 import asyncio
 import os
+import json
+import socket
+import struct
 import pathlib
 import tempfile
 import unittest
@@ -33,11 +36,14 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
         class RecordingEngine(EngineProcess):
             def __init__(eng):
                 super().__init__(str(binary), ["--null-audio", "--settings",
-                    str(pathlib.Path(self.state_dir.name) / "engine-settings.json")])
+                    str(pathlib.Path(self.state_dir.name) / "engine-settings.json"),
+                    *getattr(self, "extra_engine_args", [])])
                 eng.commands = []
+                eng.command_times = []
 
             async def request(eng, msg):
                 eng.commands.append(msg)
+                eng.command_times.append(asyncio.get_running_loop().time())
                 return await super().request(msg)
 
         def factory():
@@ -168,11 +174,90 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
                          s["engine"]["state"] == "running" and not s["current"]["switching"] and
                          len(self.engines) == 2 and any(c["type"] == "loadGraph" for c in self.engines[-1].commands))
         requests = self.engines[-1].commands
-        expected = ["controllerStream", "loadGraph"] if "controllerStream" in self.core.engine_info["capabilities"] else ["loadGraph"]
+        self.assertIn("controllerStream", self.core.engine_info["capabilities"])
+        expected = ["controllerStream", "loadGraph"]
         self.assertEqual([c["type"] for c in requests], expected)
         patch = requests[-1]["patch"]
         self.assertEqual(B.find_module(patch, 1)["parameters"]["bpm"], result["value"])
         self.assertEqual((await self.state())["current"]["index"], 2)
+
+    async def test_p1e_scripted_controller_and_matched_osc(self):
+        # MOD-5 essentials.macro is not in this lab pin. This witness exercises
+        # the real mapped parameter path; it does not certify the Macro row.
+        await self.core.close()
+        await self.server.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reserve:
+            reserve.bind(("127.0.0.1", 0))
+            port = reserve.getsockname()[1]
+        patch_path = self.bundle_dir.root / "patches/basics-01-first-tone.json"
+        patch = json.loads(patch_path.read_text())
+        patch["modules"].append({"id": 9, "module": "osc.in", "config": {
+            "port": port, "rows": [{"pattern": "/h14/witness", "enabled": True}]}})
+        patch_path.write_text(json.dumps(patch))
+        config = {"format": "wirescape.player", "version": 1,
+                  "setlist": [{"patch": "patches/basics-01-first-tone.json",
+                               "program": program, "controls": [
+                                   {"id": "pitch", "target": {"param": {"module": 2, "param": "frequency"}}}]}
+                              for program in (0, 17, 18, 19)],
+                  "hardware": [{"source": {"midi": {"device": "*", "channel": 16, "cc": 3}},
+                                "control": "pitch"}],
+                  "programChange": {"enabled": True, "device": "*", "channel": 16,
+                                    "debounceMs": 500}}
+        (self.bundle_dir.root / "player.json").write_text(json.dumps(config))
+        self.bundle = B.load(self.bundle_dir.root)
+        self.extra_engine_args = ["--scripted-midi"]
+        await self.start_player()
+        engine = self.engines[-1]
+        self.assertIn("controllerStream", self.core.engine_info["capabilities"])
+        self.assertEqual([c["type"] for c in engine.commands[:2]],
+                         ["controllerStream", "loadGraph"])
+        # The subscription emits a one-shot PC 17,18,19 burst. Wait for it,
+        # return to entry 0, then repeat with the SSE observer attached.
+        await self.until(lambda s: s["current"]["index"] == 3 and not s["current"]["switching"])
+        await self.ok(type="select", index=0)
+        await self.ok(type="reset", control="pitch")
+        async with api.Events(self.port, controller=True) as events:
+            self.assertEqual((await events.next())[0], "state")
+            start = len(engine.commands)
+            before = asyncio.get_running_loop().time()
+            ack = await engine.request({"type": "controllerStream",
+                                        "kinds": ["cc", "note", "osc", "pc"]})
+            self.assertTrue(ack["ok"], ack)
+            pcs = []
+            moved = False
+            async with asyncio.timeout(5):
+                while not moved or pcs != [17, 18, 19]:
+                    kind, data = await events.next()
+                    V["event"].validate({"event": kind, "data": data})
+                    if kind == "controller":
+                        pcs.extend(e["program"] for e in data["events"]
+                                   if e["kind"] == "pc" and e["channel"] == 16)
+                    elif kind == "values":
+                        value = data["values"].get("param:2:frequency")
+                        if value and abs(value["norm"] - 99 / 127) < 1e-5:
+                            moved = True
+            await self.until(lambda s: s["current"]["index"] == 3 and not s["current"]["switching"])
+            loads = [i for i in range(start, len(engine.commands))
+                     if engine.commands[i]["type"] == "loadGraph"]
+            self.assertEqual(len(loads), 1, engine.commands[start:])
+            self.assertGreaterEqual(engine.command_times[loads[0]] - before, .5)
+            await self.until(lambda s: any(route["port"] == port and route["state"] == "listening"
+                                          for route in s["osc"]["routes"]))
+            def padded(value):
+                raw = value.encode() + b"\\0"
+                return raw + b"\\0" * (-len(raw) % 4)
+            packet = padded("/h14/witness") + padded(",f") + struct.pack(">f", .5)
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+                sender.sendto(packet, ("127.0.0.1", port))
+            async with asyncio.timeout(5):
+                data = await events.until("controller", lambda d: any(
+                    e["kind"] == "osc" and e["address"] == "/h14/witness" for e in d["events"]))
+            V["event"].validate({"event": "controller", "data": data})
+            event = next(e for e in data["events"]
+                         if e["kind"] == "osc" and e["address"] == "/h14/witness")
+            self.assertIs(event["matched"], True)
+            self.assertEqual(event["args"], [.5])
+            self.assertEqual(event["port"], port)
 
     async def test_pg3_and_pg7_api_switches_with_sse_disconnect(self):
         count = int(os.environ.get("WIRESCAPE_SWITCH_COUNT", "50"))
