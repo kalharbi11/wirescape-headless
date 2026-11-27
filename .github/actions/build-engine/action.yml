@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: GPL-3.0-only
+name: Build pinned headless engine
+description: Build the device-free sidecar target only, from LAB_PIN.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    - shell: bash
+      run: |
+        python -m pip install -r requirements-dev.txt cmake==4.2.3 ninja==1.13.0
+        sudo apt-get update
+        sudo apt-get install -y ccache
+    - name: Fetch exact lab pin and identify toolchain
+      id: toolchain
+      shell: bash
+      run: |
+        python tools/labpin.py fetch "$RUNNER_TEMP/lab"
+        test -f "$RUNNER_TEMP/lab/tools/dev.py"
+        git -C "$RUNNER_TEMP/lab" rev-parse HEAD
+        # Include actual compiler and pinned build tool versions.
+        { c++ --version; cmake --version; ninja --version; } > "$RUNNER_TEMP/toolchain.txt"
+        echo "fingerprint=$(sha256sum "$RUNNER_TEMP/toolchain.txt" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v4
+      with:
+        path: ~/.cache/ccache
+        key: headless-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('LAB_PIN') }}-${{ steps.toolchain.outputs.fingerprint }}
+    - name: Build wirescape-engine only
+      shell: bash
+      run: |
+        ccache --max-size=500M
+        ccache --set-config=compiler_check=content
+        # tools/dev.py command_build at this pin configures native/ with Ninja
+        # and CMAKE_BUILD_TYPE; --headless omits desktop steps, not a CMake option.
+        cmake -S "$RUNNER_TEMP/lab/native" -B "$RUNNER_TEMP/engine-build" -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        cmake --build "$RUNNER_TEMP/engine-build" --target wirescape_engine_sidecar --parallel 2
+        test -x "$RUNNER_TEMP/engine-build/wirescape-engine"
+        ccache -s
+        echo "WIRESCAPE_ENGINE=$RUNNER_TEMP/engine-build/wirescape-engine" >> "$GITHUB_ENV"
+        echo "WIRESCAPE_LAB=$RUNNER_TEMP/lab" >> "$GITHUB_ENV"
