@@ -685,8 +685,9 @@ class PlayerCore:
         for config in entry.scripts if entry else []:
             file = config["file"]
             script = self.scripts.get(file)
-            result.append({"file": file, **(copy.deepcopy(script.doc()) if script else
-                           {"state": "stopped", "restarts": 0, "controls": []})})
+            doc = copy.deepcopy(script.doc()) if script else {"state": "stopped", "restarts": 0, "controls": []}
+            doc["controls"] = [c for c in doc["controls"] if isinstance(c, dict) and has_player_mapping(c)]
+            result.append({"file": file, **doc})
         return result
 
     def _script_changed(self, script: Script) -> None:
