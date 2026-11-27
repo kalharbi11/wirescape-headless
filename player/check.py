@@ -213,6 +213,7 @@ def _declared_addresses(decl: dict | None) -> list[str]:
 
 def print_config(script: pathlib.Path, timeout: float = 5.0) -> dict | None:
     """Run `python -I script --print-config` (0025 §4.3); None if it fails or times out."""
+    script = pathlib.Path(script).resolve()  # cwd changes to the script's folder below
     try:
         r = subprocess.run([sys.executable, "-I", str(script), "--print-config"], cwd=script.parent,
                            capture_output=True, text=True, timeout=timeout)

@@ -43,7 +43,8 @@ Studio (full UI) ── bundle export ──► bundle: patches/ + player.json +
 ```
 python -m player fake --bundle examples/bundle            # API and UI at http://127.0.0.1:8770/ui/
 python -m player check path/to/bundle [--lab LABDIR]      # bundle check; non-zero only on errors
-python -m player run --bundle-root DIR --state DIR --engine PATH [--engine-arg --confirm-audio …]
+python -m player install path/to/bundle --state DIR      # atomic; refuses on check errors
+python -m player run --state DIR --engine PATH [--bundle-root DIR] [--engine-arg=--confirm-audio …]
 python -m unittest                                        # H0 tests
 ```
 
