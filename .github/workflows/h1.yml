@@ -50,15 +50,28 @@ jobs:
         run: python tools/labpin.py verify --remote
       - name: Fetch the lab at the pin
         run: python tools/labpin.py fetch "$RUNNER_TEMP/lab" && test -f "$RUNNER_TEMP/lab/tools/dev.py"
+  ui:
+    needs: scope
+    if: needs.scope.outputs.ready == 'true' && needs.scope.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m unittest discover -s tests/ui -p 'test_*.py' -v
   gate:
     name: H1 gate
     if: always()
-    needs: [scope, engine]
+    needs: [scope, engine, ui]
     runs-on: ubuntu-24.04
     steps:
       - name: All H1 jobs passed or were skipped by scope or draft
         env:
-          RESULTS: ${{ needs.scope.result }} ${{ needs.engine.result }}
+          RESULTS: ${{ needs.scope.result }} ${{ needs.engine.result }} ${{ needs.ui.result }}
         run: |
           echo "results: $RESULTS"
           for r in $RESULTS; do case "$r" in success|skipped) ;; *) exit 1;; esac; done
