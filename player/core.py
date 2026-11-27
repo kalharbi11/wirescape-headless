@@ -23,7 +23,7 @@ from . import API_VERSION, VERSION, bundle as B, state as S, taper
 from .catalogue import Catalogue
 from .check import check as check_bundle, ERROR, WARNING
 from .engine import AdapterFactory
-from scripting.wsrun import Script, ScriptError, resolve_script, print_config
+from scripting.wsrun import Script, ScriptError, resolve_script, print_config, has_player_mapping
 
 RESTART_INITIAL = 0.25
 RESTART_MAX = 30.0
@@ -475,6 +475,8 @@ class PlayerCore:
                    norm=taper.value_to_norm(meta, value) if value is not None else None,
                    display=taper.display(meta, value) if value is not None else "")
         doc["key"] = key
+        if r.get("script_kind") == "button":
+            doc["momentary"] = True
         return doc
 
     def _label(self, t: dict, r: dict | None) -> str:
