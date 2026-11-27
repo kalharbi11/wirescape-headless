@@ -312,6 +312,29 @@ class Runner(RunnerBase):
         self.udp.drain()
         return [v for _, a, v in self.udp.got if a == addr]
 
+    async def test_natural_exit_with_idle_runner_stdin(self):
+        """A script exiting while the runner keeps stdin open must not abort on a buffered I/O lock."""
+        p = self.sd.write("exit.py", """
+            ws.start()
+            ws.sleep(0.1)
+            raise SystemExit(7)
+        """)
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-I", "-u", str(p), "--ws-runner",
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={"WS_OSC_HOST": "127.0.0.1", "WS_OSC_PORT": str(self.udp.port)})
+        try:
+            # Do not use communicate(): it closes stdin and masks the shutdown race.
+            await asyncio.wait_for(proc.wait(), 3.0)
+            err = await proc.stderr.read()
+            self.assertEqual(proc.returncode, 7, err.decode(errors="replace"))
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+            proc.stdin.close()
+
     async def test_controls_reach_the_script_and_are_resent_after_restart(self):
         s = self.script("""
             k = ws.knob("Density", 0, 1, 0.5)
