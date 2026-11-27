@@ -38,19 +38,30 @@ def main(argv=None):
         parser.error("Linux /proc required")
     # Never overwrite evidence. No implicit consent flags.
     with args.record.open("x", encoding="utf-8", buffering=1) as log:
+        failed = False
+
         def record(kind, **fields):
-            log.write(json.dumps({"kind": kind, "monotonic_ns": time.monotonic_ns(),
-                                  **fields}, separators=(",", ":"), allow_nan=False) + "\n")
+            nonlocal failed
+            if failed:
+                return
+            try:
+                log.write(json.dumps({"kind": kind, "monotonic_ns": time.monotonic_ns(),
+                                      **fields}, separators=(",", ":"), allow_nan=False) + "\n")
+            except (OSError, ValueError) as exc:
+                # Do not kill the engine stdout reader if diagnostic evidence
+                # cannot be written. Owner must treat this run as inconclusive.
+                failed = True
+                print(f"soak recording failed: {exc}; evidence incomplete", file=sys.stderr, flush=True)
 
         class RecordingEngine(EngineProcess):
             def __init__(self, *a, **kw):
                 super().__init__(*a, **kw)
-                self.last_sample = 0
+                self.last_sample = None
 
             def _dispatch(self, msg):
                 super()._dispatch(msg)
                 kind = msg.get("type")
-                if kind == "hello":
+                if kind == "hello" and msg.get("session") == self.session:
                     record("hello", pid=self.pid, session=msg.get("session"),
                            engine=msg.get("engine"), capabilities=msg.get("capabilities"))
                 elif kind == "status" and msg.get("session") == self.session:
@@ -59,7 +70,7 @@ def main(argv=None):
                            audio=status.get("audio"), osc=status.get("osc"),
                            controller=status.get("controller"))
                     now = time.monotonic()
-                    if now - self.last_sample >= 10:
+                    if not failed and (self.last_sample is None or now - self.last_sample >= 10):
                         self.last_sample = now
                         try:
                             record("process", player=process_sample(os.getpid()),
@@ -68,13 +79,16 @@ def main(argv=None):
                             record("sample_error", error=type(exc).__name__)
 
         record("start", player_pid=os.getpid(), wall_time_ns=time.time_ns())
+        if failed:
+            return 1
         original = run.EngineProcess
         run.EngineProcess = RecordingEngine
         try:
-            return run.main(player_args)
+            result = run.main(player_args)
         finally:
             run.EngineProcess = original
             record("stop", wall_time_ns=time.time_ns())
+        return 1 if failed else result
 
 
 if __name__ == "__main__":
