@@ -12,6 +12,7 @@ import unittest
 from player import bundle as B
 from player.core import PlayerCore
 from player.engine_proc import EngineProcess
+from player.run import engine_argv
 from player.server import ApiServer
 from player.state import StateStore
 from tests import apiclient as api
@@ -35,9 +36,10 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
 
         class RecordingEngine(EngineProcess):
             def __init__(eng):
-                super().__init__(str(binary), ["--null-audio", "--settings",
-                    str(pathlib.Path(self.state_dir.name) / "engine-settings.json"),
-                    *getattr(self, "extra_engine_args", [])])
+                super().__init__(str(binary), engine_argv(
+                    pathlib.Path(self.state_dir.name),
+                    ["--null-audio", *getattr(self, "extra_engine_args", [])],
+                    self.bundle.config.get("osc", {}).get("controlPort", 0)))
                 eng.commands = []
                 eng.command_times = []
                 eng.status_by_gen = None
@@ -295,7 +297,7 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
                                 "control": "pitch"}]}
         (self.bundle_dir.root / "player.json").write_text(json.dumps(config))
         self.bundle = B.load(self.bundle_dir.root)
-        self.extra_engine_args = ["--control-osc-port", str(port)]
+        self.extra_engine_args = []
         await self.start_player()
         engine = self.engines[-1]
         pid = engine.pid
