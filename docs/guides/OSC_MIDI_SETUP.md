@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 # OSC and MIDI setup
 
-**Applies to:** Player v1 at this checkout's LAB_PIN; controllerStream requires H-14, control OSC port requires P1-e2 and the later pin bump.
+**Applies to:** Player v1 at this checkout's LAB_PIN; controllerStream requires H-14; control OSC port requires the H-15 P1-e2 pin.
 **You need:** a trusted bundle, the Player, a local terminal, a MIDI or OSC controller (optional for device-free checks).
 **Time:** 15–25 minutes.
 
@@ -91,21 +91,21 @@ curl -fsS -N 'http://127.0.0.1:8770/api/v1/events?controller=1'
 the matching entry after debounce. Before H-14 the Player mapping/PC check is blocked; in-patch MIDI
 is separate. Without real hardware use the fake's documented injection command, not device consent.
 
-## 5. Patch-independent OSC (future capability)
+## 5. Patch-independent OSC
 
 Use a separate control port (e.g. 9100) in `player.json` and do not place any patch OSC In on it.
-The engine design uses launch flag `--control-osc-port 9100`, default off; it needs P1-e2 and a pinned
-Player integration. It binds loopback unless both `--confirm-lan` and `--control-osc-lan` are passed
-by the owner. No runtime port change. This is not supported at the initial pin; do not pass unknown
-flags or claim it works because `player.json` accepts the key.
+At startup the Player forwards the boot bundle's nonzero `osc.controlPort` to the engine as
+`--control-osc-port 9100`; zero or absent leaves the port off. It binds loopback unless both
+`--confirm-lan` and `--control-osc-lan` are passed by the owner. This is a launch-only setting:
+restart the Player after changing the port; graph switches do not reconfigure it.
 
 ```sh
 curl -fsS http://127.0.0.1:8770/api/v1/state
 ```
 
-**Check:** only after the later pin/integration, confirm capability `controllerStream.controlPort`,
+**Check:** confirm capability `controllerStream.controlPort`,
 an actual control route and an SSE event with matched:false; confirm a mapped action on a different
-entry. Otherwise record blocked (P1-e2).
+entry. If the capability is absent, record blocked (P1-e2).
 
 ## 6. Return to device-off
 
