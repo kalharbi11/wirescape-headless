@@ -23,7 +23,7 @@ jobs:
       - name: 200 API switches, null audio
         env:
           WIRESCAPE_SWITCH_COUNT: "200"
-        run: python -m unittest tests.integration.test_real_engine.RealEngine.test_pg3_and_pg7_api_switches_with_sse_disconnect -v
+        run: python -m unittest discover -s tests/integration -p 'test_switch_witness.py' -v
   gate:
     name: H2 gate
     if: always()

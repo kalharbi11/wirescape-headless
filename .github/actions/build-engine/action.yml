@@ -39,3 +39,4 @@ runs:
         test -x "$RUNNER_TEMP/engine-build/wirescape-engine"
         ccache -s
         echo "WIRESCAPE_ENGINE=$RUNNER_TEMP/engine-build/wirescape-engine" >> "$GITHUB_ENV"
+        echo "WIRESCAPE_LAB=$RUNNER_TEMP/lab" >> "$GITHUB_ENV"
