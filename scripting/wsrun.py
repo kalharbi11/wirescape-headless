@@ -27,6 +27,7 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import os
 import pathlib
 import signal
@@ -108,6 +109,18 @@ async def zero_gates(port: int, addresses: list[str], host: str = OSC_HOST) -> N
     await p.wait()
 
 
+def has_player_mapping(control: dict) -> bool:
+    """A108: only bounded numeric, choice, toggle and momentary controls in Player v1."""
+    kind = control.get("type")
+    if kind in ("text", "notes", "label"):
+        return False
+    if kind == "number":
+        lo, hi = control.get("min"), control.get("max")
+        return (all(isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n)
+                    for n in (lo, hi)) and lo < hi)
+    return True
+
+
 class Script:
     """One supervised script process. States: running, stalled, stopped, crashed, restarting."""
 
@@ -170,6 +183,12 @@ class Script:
         if self._declared:
             await self._write({"type": "control", "id": cid, "value": value})
 
+    async def press(self, cid: str) -> bool:
+        """Send one event to the current child; never queue or replay a press."""
+        if not self._declared:
+            return False
+        return await self._write({"type": "control", "id": cid, "value": 1})
+
     def doc(self) -> dict:
         return {"state": self.state, "restarts": self.restarts, "controls": (self.declaration or {}).get("controls", [])}
 
@@ -181,15 +200,16 @@ class Script:
             if self.on_change:
                 self.on_change(self)
 
-    async def _write(self, msg: dict) -> None:
+    async def _write(self, msg: dict) -> bool:
         p = self.proc
         if p is None or p.stdin is None or p.returncode is not None:
-            return
+            return False
         try:
             p.stdin.write((json.dumps(msg) + "\n").encode())
             await p.stdin.drain()
         except (ConnectionError, BrokenPipeError, RuntimeError):
-            pass
+            return False
+        return True
 
     async def _spawn(self) -> asyncio.subprocess.Process:
         env = dict(os.environ, WS_OSC_HOST=OSC_HOST, WS_OSC_PORT=str(self.port))

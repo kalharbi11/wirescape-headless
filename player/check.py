@@ -15,6 +15,7 @@ from typing import Iterable
 
 from . import bundle as B
 from .catalogue import Catalogue, SNAPSHOT
+from scripting.wsrun import has_player_mapping
 
 ERROR, WARNING, INFO = "error", "warning", "info"
 
@@ -144,6 +145,18 @@ def check(b: B.Bundle, catalogue: Catalogue | None, declarations: dict[str, dict
                 if m.get("module") == "osc.in" and _osc_in_port(m) == cport:
                     add(ERROR, "control-port-clash", f"setlist[{idx}].patch",
                         f"{b.entries[idx].patch} module {m.get('id')} listens on osc.controlPort {cport}")
+
+    # A declaration may be shared by several entries: warn once per file/control.
+    for file, decl in (declarations or {}).items():
+        seen = set()
+        for control in decl.get("controls", []):
+            if not isinstance(control, dict) or has_player_mapping(control):
+                continue
+            cid, kind = control.get("id"), control.get("type")
+            if cid not in seen:
+                add(WARNING, "script-control-unmapped", file,
+                    f"script control {cid} ({kind}) has no v1 Player mapping")
+                seen.add(cid)
 
     # Script outputs with no matching OSC In row in the entries that run them (0025 §4.4).
     for e in b.entries:

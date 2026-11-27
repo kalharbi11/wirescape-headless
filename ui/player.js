@@ -39,6 +39,11 @@ function format(v,unit="") { return v == null?"—":(typeof v==="number"?Number(
 function bind(key,fn) { if (key) { if(!bindings.has(key)) bindings.set(key,[]);bindings.get(key).push(fn); } }
 function numeric(parent,label,meta,value,norm,key,fields,disabled=false) {
   const box=el("div",null,parent,{class:"control"});
+  if(meta.momentary || meta.type==="button") {
+    const press=button(box,label,()=>act("set",{...fields,value:1}));
+    press.disabled=disabled;
+    return;
+  }
   const id="control-"+root.querySelectorAll(".control").length;
   const lab=el("label",label,box,{for:id});
   const out=el("span",format(value,meta.unit),lab,{class:"value"});
@@ -108,7 +113,8 @@ function scripts() {
     for(const c of s.controls) {
       if(Object.values(state.controls).some(x=>x.target?.script?.file===s.file&&x.target.script.control===c.id))continue;
       const lo=c.min??c.lo??0,hi=c.max??c.hi??1,v=c.value??c.default??lo;
-      if(typeof v==="number"&&hi>lo)numeric(grid,c.label||c.id,c,v,(v-lo)/(hi-lo), "script:"+s.file+":"+c.id,{target:{script:{file:s.file,control:c.id}}});
+      if(c.type==="button")numeric(grid,c.label||c.id,c,null,null,null,{target:{script:{file:s.file,control:c.id}}});
+      else if(typeof v==="number"&&hi>lo)numeric(grid,c.label||c.id,c,v,(v-lo)/(hi-lo), "script:"+s.file+":"+c.id,{target:{script:{file:s.file,control:c.id}}});
       else el("p",(c.label||c.id)+": "+String(v),grid);
     }
   }

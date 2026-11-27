@@ -32,13 +32,16 @@ class RealScript(unittest.IsolatedAsyncioTestCase):
         config = player([
             {"patch": "patches/basics-01-first-tone.json"},
             {"patch": "patches/script-probe.json", "scripts": [{"file": "scripts/probe.py", "port": port_in}],
-             "controls": [{"id": "dens", "target": {"script": {"file": "scripts/probe.py", "control": "density"}}}],
+             "controls": [{"id": "dens", "target": {"script": {"file": "scripts/probe.py", "control": "density"}}},
+                          {"id": "press", "target": {"script": {"file": "scripts/probe.py", "control": "press"}}}],
              "pages": [{"title": "Script", "controls": ["dens"]}]}])
         tb = TempBundle(config)
         self.addCleanup(tb.cleanup)
         # Independent gate witnesses the child applying the recalled control,
         # rather than requiring OSC Out to resend an unchanged CV.
         probe = SCRIPT.replace('density = ws.knob', 'replay_gate = ws.gate("Replayed", address="/test/replayed")\ndensity = ws.knob').replace('    gate.on()', '    gate.on()\n    replay_gate.send(float(density.value == 1.5))')
+        probe = probe.replace("ws.start()", 'press = ws.button("Press")\npress_cv = ws.cv("Press count", address="/test/press")\nws.start()')
+        probe = probe.replace("    gate.on()", "    gate.on()\n    press_cv.send(press.press_count / 4)")
         (tb.root / "scripts/probe.py").write_text(probe)
         patch = json.loads((tb.root / "patches/basics-01-first-tone.json").read_text())
         def row(address, kind):
@@ -48,11 +51,12 @@ class RealScript(unittest.IsolatedAsyncioTestCase):
                         stale="zero" if kind == "gate" else "hold")
         patch["modules"] += [
             dict(id=101, module="osc.in", config=dict(port=port_in, lan=False,
-                rows=[row("/test/gate", "gate"), row("/test/value", "cv"), row("/test/replayed", "gate")] + [dict(enabled=False) for _ in range(5)])),
+                rows=[row("/test/gate", "gate"), row("/test/value", "cv"), row("/test/replayed", "gate"), row("/test/press", "cv")] + [dict(enabled=False) for _ in range(4)])),
             dict(id=102, module="osc.out", config=dict(port=port_out, rate_hz=100,
                 rows=[dict(address="/echo/gate", kind="gate"), dict(address="/echo/value", kind="cv", deadband=0),
-                      dict(address="/echo/replayed", kind="gate")] + [dict(enabled=False) for _ in range(5)]))]
-        for port in ("row1", "row2", "row3"):
+                      dict(address="/echo/replayed", kind="gate"),
+                      dict(address="/echo/press", kind="cv", deadband=0)] + [dict(enabled=False) for _ in range(4)]))]
+        for port in ("row1", "row2", "row3", "row4"):
             patch["connections"].append(dict(kind="signal", **{
                 "from": dict(module=101, port=port), "to": dict(module=102, port=port)}))
         (tb.root / "patches/script-probe.json").write_text(json.dumps(patch))
@@ -128,6 +132,15 @@ class RealScript(unittest.IsolatedAsyncioTestCase):
         await receive("/echo/value", .75, before_set)
         await receive("/echo/replayed", 1, before_set)
         script = core.scripts["scripts/probe.py"]
+        before_press = len(packets)
+        await cmd(type="set", control="press", value=.49)
+        await cmd(type="set", control="press", value=.5)
+        await receive("/echo/press", .25, before_press)
+        before_press = len(packets)
+        await cmd(type="set", control="press", norm=.5)
+        await receive("/echo/press", .5, before_press)
+        self.assertNotIn("press", script.values)
+        self.assertNotIn("script:scripts/probe.py:press", core.values.get(1, {}))
         old_pid = script.proc.pid
         self.assertEqual(script.values["density"], 1.5)
         before_crash = len(packets)
@@ -136,6 +149,11 @@ class RealScript(unittest.IsolatedAsyncioTestCase):
         replay_zero = await receive("/echo/replayed", 0, before_crash)
         await receive("/echo/gate", 1, normal_zero)
         await receive("/echo/replayed", 1, replay_zero)
+        await receive("/echo/press", 0, before_crash)
+        before_press = len(packets)
+        await cmd(type="set", control="press", value=1)
+        await receive("/echo/press", .25, before_press)
+        self.assertNotIn("press", script.values)
         self.assertNotEqual(script.proc.pid, old_pid)
         self.assertEqual(script.values["density"], 1.5)
         self.assertGreaterEqual(script.restarts, 1)
