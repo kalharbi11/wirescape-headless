@@ -133,6 +133,7 @@ class Script:
         self._heartbeat = 0.0
         self._watch: asyncio.Task | None = None
         self._spawning: asyncio.Task | None = None
+        self._declared = False
 
     # -- public --------------------------------------------------------------------
 
@@ -163,7 +164,8 @@ class Script:
 
     async def control(self, cid: str, value: Any) -> None:
         self.values[cid] = value
-        await self._write({"type": "control", "id": cid, "value": value})
+        if self._declared:
+            await self._write({"type": "control", "id": cid, "value": value})
 
     def doc(self) -> dict:
         return {"state": self.state, "restarts": self.restarts, "controls": (self.declaration or {}).get("controls", [])}
@@ -195,6 +197,7 @@ class Script:
     async def _supervise(self) -> None:
         loop = asyncio.get_running_loop()
         while self._want:
+            self._declared = False
             self._spawning = loop.create_task(self._spawn())
             try:
                 self.proc = await asyncio.shield(self._spawning)
@@ -202,8 +205,6 @@ class Script:
                 self._spawning = None
             self._started_at = self._heartbeat = self.clock()
             self._set("running")
-            for cid, v in self.values.items():  # re-sent after a restart (0025 §4.5)
-                await self._write({"type": "control", "id": cid, "value": v})
             self._watch = loop.create_task(self._watch_stall())
             try:
                 await self._read(self.proc)
@@ -211,6 +212,7 @@ class Script:
             finally:
                 self._watch.cancel()
                 await asyncio.gather(self._watch, return_exceptions=True)
+            self._declared = False
             self.last_exit = rc
             if self.proc.stdin is not None:
                 self.proc.stdin.close()
@@ -242,6 +244,11 @@ class Script:
                 if kind == "declare" and isinstance(doc, dict):
                     self.declaration = doc
                     self._heartbeat = self.clock()
+                    self._declared = True
+                    # Replay only after the child has declared its controls. Values
+                    # changed during backoff or startup are included in the snapshot.
+                    for cid, v in list(self.values.items()):
+                        await self._write({"type": "control", "id": cid, "value": v})
                     if self.on_change:
                         self.on_change(self)
                     continue

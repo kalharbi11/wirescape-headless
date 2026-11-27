@@ -50,7 +50,11 @@ class EngineProcess:
             stderr=asyncio.subprocess.PIPE, limit=LINE_LIMIT)
         self._tasks = [loop.create_task(self._read_stdout()), loop.create_task(self._read_stderr()),
                        loop.create_task(self._wait())]
-        return await asyncio.shield(self._hello)
+        try:
+            return await asyncio.shield(self._hello)
+        except asyncio.CancelledError:
+            self._hello.cancel()
+            raise
 
     async def request(self, msg: dict) -> dict:
         if self._exited or self.proc is None or self.proc.stdin is None or self.session is None:
@@ -73,6 +77,8 @@ class EngineProcess:
                 self.proc.kill()
             except ProcessLookupError:
                 pass
+        if self._tasks:
+            await asyncio.shield(self._tasks[2])
 
     async def stop(self) -> None:
         """Close stdin, wait 2 s, then SIGKILL (0025 §2.2 "Stop")."""

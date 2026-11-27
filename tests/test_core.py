@@ -480,6 +480,8 @@ class StdioAdapter(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.TimeoutError):
             await asyncio.wait_for(e.start(), 0.5)
         await e.kill()
+        self.assertIsNotNone(e.proc.returncode)
+        self.assertTrue(all(t.done() for t in e._tasks))
 
     async def test_core_restarts_a_killed_process_and_reloads(self):
         tb = TempBundle()

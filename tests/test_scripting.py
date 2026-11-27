@@ -351,7 +351,12 @@ class Runner(RunnerBase):
         await s.control("density", 0.7)
         await self.until(lambda: "density 0.7" in self.logs)
         self.logs.clear()
-        await self.until(lambda: s.restarts >= 1 and "density 0.7" in self.logs, 6.0)
+        try:
+            await self.until(lambda: s.restarts >= 1 and "density 0.7" in self.logs, 6.0)
+        except AssertionError:
+            self.fail(f"control replay failed: state={s.state}, restarts={s.restarts}, "
+                      f"exit={s.last_exit}, values={s.values}, logs={self.logs!r}, "
+                      f"task={s._task!r}")
 
     async def test_environment_and_working_directory(self):
         s = self.script("""
