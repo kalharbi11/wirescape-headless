@@ -48,7 +48,7 @@ feature is not in this version), `engine` (the engine refused; `engineCode` is i
 | `audio.devices`, `audio.select`, `audio.buffer`, `audio.rate` | `deviceId`, `frames` (64–1024), `hz` (44100/48000/96000) | engine passthrough |
 | `midi.devices`, `midi.enable` | `deviceId`, `on` | engine passthrough |
 | `engine.restart` | — | counted as a restart, with no backoff |
-| `script.start`, `script.stop`, `script.restart` | `file` | `unavailable` until H-11 |
+| `script.start`, `script.stop`, `script.restart` | `file` | Active entry's declared script only; not-found otherwise; busy while switching |
 | `config.get`, `config.put` | `json` | `get` returns `player.json`; `put` is `unavailable` until Stage 2 |
 | `fake.inject` | `what`: `engineCrash`, `engineStall`, `scriptCrash`, `controller` (+ `event`) | **fake only**; the real Player answers `unavailable` |
 
@@ -76,3 +76,5 @@ stream is a full `state`.
 
 ## Examples
 `api/examples/` holds one request and reply per command family, taken from the fake player.
+
+H-11: script lifecycle and restart counters are reported in state/status. The script target uses the child's declared bounded numeric control range. Toggle and dropdown use numeric values (0/1 and choice index); text, notes, labels and momentary buttons do not yet have a numeric v1 mapping. Values replay after a script restart and entry recall. The Player does not open UDP itself.

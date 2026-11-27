@@ -22,6 +22,7 @@ from . import API_VERSION, VERSION, bundle as B, state as S, taper
 from .catalogue import Catalogue
 from .check import check as check_bundle, ERROR, WARNING
 from .engine import AdapterFactory
+from scripting.wsrun import Script, ScriptError, resolve_script
 
 RESTART_INITIAL = 0.25
 RESTART_MAX = 30.0
@@ -107,6 +108,9 @@ class PlayerCore:
         self._debounce: asyncio.TimerHandle | None = None
         self._debounce_target: int | None = None
         self._pc_ignored: dict[int, int] = {}
+        self.scripts: dict[str, Script] = {}
+        self._script_warnings: list[str] = []
+        self._script_lock = asyncio.Lock()
         self._recheck()
 
     # ================================================================ lifecycle
@@ -135,6 +139,8 @@ class PlayerCore:
         self.save_now()
         for t in self._tasks:
             t.cancel()
+        async with self._script_lock:
+            await self._stop_scripts()
         if self.engine:
             await self.engine.stop()
         for s in list(self.subscribers):
@@ -295,18 +301,17 @@ class PlayerCore:
             "pages": [{"title": p.get("title", ""), "controls": list(p.get("controls", []))}
                       for p in self.bundle.global_pages + (e.pages if e else [])],
             "controls": {c["id"]: self._control_doc(c) for c in self._controls()},
-            "scripts": [{"file": s["file"], "state": "stopped", "restarts": 0, "controls": []}
-                        for s in (e.scripts if e else [])],
+            "scripts": self._scripts_doc(),
             "midi": {"devices": copy.deepcopy(self.midi_devices)},
             "osc": {"controlPort": self.control_port, "routes": copy.deepcopy(self.osc_status.get("routes", []))},
-            "warnings": ([NO_BUNDLE] if not self.bundles else []) + list(self.warnings) + [
+            "warnings": ([NO_BUNDLE] if not self.bundles else []) + list(self.warnings) + self._script_warnings + [
                 f"Program Change {n} has no setlist entry (ignored {k}x)" for n, k in sorted(self._pc_ignored.items())],
         }
 
     def status_doc(self) -> dict:
         return {"rev": self.rev,
                 "engine": {k: copy.deepcopy(self.engine_info[k]) for k in ("state", "restarts", "lastExit", "audio")},
-                "scripts": [], "osc": {"controlPort": self.control_port,
+                "scripts": self._scripts_doc(), "osc": {"controlPort": self.control_port,
                                        "routes": copy.deepcopy(self.osc_status.get("routes", []))}}
 
     def _entry(self) -> B.Entry | None:
@@ -376,13 +381,34 @@ class PlayerCore:
                     "cable": cable}
         if form == "script":
             v = target["script"]
-            e = self._entry()
-            running = any(s.get("file") == v["file"] for s in (e.scripts if e else []))
-            if not running:
+            script = self.scripts.get(v["file"])
+            if script is None:
                 return None
-            meta = {"name": v["control"], "minimum": 0, "maximum": 1, "default": 0, "step": 0, "unit": "",
-                    "taper": "linear", "decimals": 2}
-            return {"form": form, "key": f"script:{v['file']}:{v['control']}", "meta": meta, "module": None}
+            control = next((d for d in (script.declaration or {}).get("controls", [])
+                            if d.get("id") == v["control"]), None)
+            if control is None:
+                return None
+            kind = control.get("type")
+            if kind in ("knob", "slider", "number"):
+                lo, hi, default = control.get("min"), control.get("max"), control.get("default")
+                step, choices = control.get("step", 0), None
+                if not all(_finite(n) for n in (lo, hi, default, step)) or hi <= lo or step < 0:
+                    return None
+            elif kind == "toggle":
+                lo, hi, default, step, choices = 0, 1, int(bool(control.get("default"))), 1, None
+            elif kind == "dropdown":
+                choices = control.get("choices", [])
+                if not choices or control.get("default") not in choices:
+                    return None
+                lo, hi, default, step = 0, len(choices) - 1, choices.index(control["default"]), 1
+            else:
+                return None  # v1 set/values are numeric; do not invent wire types.
+            meta = {"name": control.get("label", v["control"]), "minimum": lo, "maximum": hi,
+                    "default": default, "step": step, "unit": "", "taper": "linear", "decimals": 2}
+            if choices is not None:
+                meta["choices"] = choices
+            return {"form": form, "key": f"script:{v['file']}:{v['control']}", "meta": meta,
+                    "module": None, "script": script, "control": v["control"], "script_kind": kind}
         return None
 
     def _patch_value(self, r: dict) -> float | None:
@@ -481,12 +507,17 @@ class PlayerCore:
             self.current["error"] = ce.message
             self._changed()
             raise
-        self.current["switching"] = False
-        self._inflight = None
         if reply.get("ok"):
-            self.current.update(index=index, error=None)
-            self._boot_target = None
-            self.patch = self.bundle.load_patch(e)
+            async with self._script_lock:
+                # Only replace scripts after a successful graph ACK. Refused
+                # loads leave the previous entry and its processes intact.
+                if reason == "select" and not self._stopping:
+                    await self._stop_scripts()
+                self.current.update(index=index, error=None)
+                self._boot_target = None
+                self.patch = self.bundle.load_patch(e)
+                if reason == "select" and not self._stopping:
+                    await self._start_scripts(e)
             self._refresh_warnings()
             self.save_now()  # every switch saves (0025 §2.3)
             if not self._good_saved and self.store:
@@ -495,9 +526,83 @@ class PlayerCore:
         else:
             # A refused loadGraph keeps the previous patch (the engine leaves its graph untouched).
             self.current["error"] = f"{reply.get('code')}: {reply.get('message')}"
+        self.current["switching"] = False
+        self._inflight = None
         self._changed()
         if not reply.get("ok"):
             raise CommandError("engine", reply.get("message", "refused"), reply.get("code"))
+
+    # ================================================================ scripts (0025 §4.5)
+
+    def _scripts_doc(self) -> list[dict]:
+        entry = self._entry()
+        result = []
+        for config in entry.scripts if entry else []:
+            file = config["file"]
+            script = self.scripts.get(file)
+            result.append({"file": file, **(copy.deepcopy(script.doc()) if script else
+                           {"state": "stopped", "restarts": 0, "controls": []})})
+        return result
+
+    def _script_changed(self, script: Script) -> None:
+        if script not in self.scripts.values() or self._stopping:
+            return
+        self._refresh_warnings()
+        self._changed()
+
+    @staticmethod
+    def _script_wire_value(r: dict, value: float):
+        if r["script_kind"] == "toggle":
+            return bool(value)
+        if r["script_kind"] == "dropdown":
+            return r["meta"]["choices"][int(value)]
+        return value
+
+    async def _stop_scripts(self) -> None:
+        scripts, self.scripts = self.scripts, {}
+        self._script_warnings = []
+        for file, script in scripts.items():
+            try:
+                await script.stop()
+            except (OSError, RuntimeError) as e:
+                log.error("script %s stop: %s", file, e)
+
+    async def _start_scripts(self, entry: B.Entry) -> None:
+        root = self.bundle.root / "scripts"
+        for config in entry.scripts:
+            file = config["file"]
+            try:
+                # The config is bundle-relative; resolve against scripts/ again
+                # to reject symlinks escaping it and undeclared external files.
+                rel = (self.bundle.root / file).resolve().relative_to(root.resolve())
+                path = resolve_script(root, str(rel))
+                script = Script(path, config.get("port", 9000), on_change=self._script_changed)
+                self.scripts[file] = script
+                prefix = f"script:{file}:"
+                for key, value in self.values.get(entry.index, {}).items():
+                    if key.startswith(prefix):
+                        script.values[key[len(prefix):]] = value
+                await script.start()
+            except (OSError, ValueError, ScriptError) as exc:
+                self._script_warnings.append(f"script {file}: {exc}")
+
+    async def cmd_script(self, cmd: dict) -> dict:
+        file = cmd.get("file")
+        if not isinstance(file, str):
+            raise CommandError("invalid", "file must name an entry script")
+        async with self._script_lock:
+            if self.current["switching"] or self._stopping:
+                raise CommandError("busy", "entry is switching")
+            script = self.scripts.get(file)
+            if script is None:
+                raise CommandError("not-found", f"no declared script {file!r} in this entry")
+            action = cmd["type"].split(".")[1]
+            try:
+                await getattr(script, action)()
+            except (OSError, RuntimeError) as e:
+                raise CommandError("unavailable", str(e)) from None
+            self._changed()
+            return {"file": file, "state": script.state}
 
     # ================================================================ saves (0025 §2.3)
 
@@ -639,7 +744,8 @@ class PlayerCore:
             c = r["cable"]
             await self._engine_ok({"type": "setModAmount", "amount": value,
                                    "connection": {"kind": "modulation", "from": c["from"], "to": c["to"]}})
-        # script values are stored here and delivered by the runner (H-11).
+        elif r["form"] == "script":
+            await r["script"].control(r["control"], self._script_wire_value(r, value))
         self.values.setdefault(self.current["index"], {})[r["key"]] = value
         self._dirty_values[r["key"]] = {"value": value, "norm": taper.value_to_norm(r["meta"], value)}
         self._save_later()
@@ -678,6 +784,9 @@ class PlayerCore:
             tm, _, tp = dst.partition(":")
             return self._resolve({"modAmount": {"from": {"module": int(fm), "port": fp},
                                                 "to": {"module": int(tm), "param": tp}}})
+        if kind == "script":
+            file, _, control = rest.rpartition(":")
+            return self._resolve({"script": {"file": file, "control": control}})
         return None
 
     async def cmd_params_list(self, cmd: dict) -> dict:
@@ -711,6 +820,8 @@ class PlayerCore:
         if name not in self.bundles:
             raise CommandError("not-found", f"no bundle {name!r}")
         if self.bundles[name] is not self.bundle:
+            async with self._script_lock:
+                await self._stop_scripts()
             self.bundle = self.bundles[name]
             self.current.update(index=None, pending=None, error=None)
             self.values = {}
@@ -761,7 +872,10 @@ class PlayerCore:
                 raise CommandError("unavailable", "the engine is not running")
             self.engine.stall()
         elif what == "scriptCrash":
-            raise CommandError("unavailable", "scripts arrive with H-11")
+            script = next((s for s in self.scripts.values() if s.proc and s.proc.returncode is None), None)
+            if script is None:
+                raise CommandError("unavailable", "no running script")
+            script.proc.kill()
         elif what == "controller":
             ev = cmd.get("event")
             if not isinstance(ev, dict) or not isinstance(ev.get("kind"), str):
@@ -844,9 +958,9 @@ COMMANDS: dict[str, Callable] = {
     "midi.devices": lambda c, cmd: _passthrough(c, {"type": "listMidiDevices"}),
     "midi.enable": _midi_enable,
     "engine.restart": PlayerCore.cmd_engine_restart,
-    "script.start": _unavailable,
-    "script.stop": _unavailable,
-    "script.restart": _unavailable,
+    "script.start": PlayerCore.cmd_script,
+    "script.stop": PlayerCore.cmd_script,
+    "script.restart": PlayerCore.cmd_script,
     "config.get": _config_get,
     "config.put": _unavailable,
     "fake.inject": PlayerCore.cmd_fake_inject,
