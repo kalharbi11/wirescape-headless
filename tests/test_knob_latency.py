@@ -81,7 +81,7 @@ class KnobLatencyTests(unittest.TestCase):
 
     def test_explicit_drop_counters(self):
         self.c.observe({"type": "status", "session": "s1",
-                        "controller": {"events": 10, "dropped": {"fifo": 0, "latest": 2, "oversize": 0}}})
+                        "status": {"controller": {"events": 10, "dropped": {"fifo": 0, "latest": 2, "oversize": 0}}}})
         self.c.player_dropped = 3
         self.assertEqual(self.c.engine_status["s1"]["dropped"]["latest"], 2)
         self.assertEqual(self.c.player_dropped, 3)
@@ -97,6 +97,39 @@ class KnobLatencyTests(unittest.TestCase):
 
 
 class AdapterReceiptTests(unittest.IsolatedAsyncioTestCase):
+    async def test_nested_status_dispatch_freshness_and_wrong_session(self):
+        collector = Collector(1_000_000_000, 1, 1)
+        engine = ObservedEngine("unused", [], collector)
+        engine.session = "s1"
+        good = {"events": 10, "dropped": {"fifo": 0, "latest": 2, "oversize": 0}}
+        def status(body, ns, session="s1"):
+            with patch("tools.knob_latency.time.monotonic_ns", return_value=ns):
+                engine._dispatch({"v": 0, "type": "status", "session": session,
+                                  "gen": "4", "status": body})
+        status({"controller": good}, 1_500_000_000)
+        self.assertEqual(collector.engine_status["s1"], good)
+        self.assertEqual(collector.last_status_ns["s1"], 1_500_000_000)
+        self.assertFalse(collector.status_evidence()["s1"]["fresh"])
+        status({"controller": good}, 2_010_000_000, "wrong")
+        self.assertNotIn("wrong", collector.engine_status)
+        self.assertFalse(collector.status_evidence()["s1"]["fresh"])
+        status({"controller": good}, 2_020_000_000)
+        self.assertTrue(collector.status_evidence()["s1"]["fresh"])
+        self.assertTrue(collector.status_evidence()["s1"]["valid"])
+        for body in ({}, {"controller": None}, {"controller": {"events": 10}},
+                     {"controller": {"events": 10, "dropped": {"fifo": 0, "latest": True, "oversize": 0}}},
+                     {"controller": {"events": -1, "dropped": {"fifo": 0, "latest": 0, "oversize": 0}}}):
+            with self.subTest(body=body):
+                status(body, 2_030_000_000)
+                self.assertFalse(collector.status_evidence()["s1"]["valid"])
+                self.assertTrue(collector.status_evidence()["s1"]["fresh"])
+                self.assertEqual(collector.engine_status["s1"], body.get("controller"))
+                self.assertEqual(collector.last_status_ns["s1"], 2_030_000_000)
+        status({"controller": good}, 2_040_000_000)
+        self.assertTrue(collector.status_evidence()["s1"]["valid"])
+        self.assertEqual(collector.engine_status["s1"]["dropped"]["latest"], 2)
+
+
     async def test_dispatch_pairs_actual_request_and_ignores_other_task_and_session(self):
         collector = Collector(1_000_000_000, 1, 1)
         engine = ObservedEngine("unused", [], collector)
