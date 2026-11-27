@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
+import io
+import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 import unittest
 
-from tools.ui_cost import analyze, members, kiosk_sample, tree_rss
+from tools.ui_cost import analyze, engine_sample, members, kiosk_sample, tree_rss
 
 
 def samples(ui):
@@ -14,8 +16,11 @@ def samples(ui):
             "dropouts": 10 + i // 900,
             "engine_restarts": 0,
             "engine_running": True,
+            "player_fake": False,
+            "audio_state": "running",
             "patch_index": 0,
-            "audio_settings": {"sampleRate": 48000, "bufferFrames": 256},
+            "audio_settings": {"sampleRate": 48000, "bufferFrames": 256,
+                               "deviceId": "test-output"},
             "ui_active": ui,
             "invocation": "test-invocation" if ui else None,
             "cpu_usec": i * 200000 if ui else None,
@@ -132,3 +137,81 @@ class UICostTests(unittest.TestCase):
                        side_effect=[first, second, first, {**second, "start": 3}]):
                 with self.assertRaisesRegex(ValueError, "membership changed"):
                     kiosk_sample(True)
+
+    def test_reject_fake_missing_identity_and_unavailable_audio(self):
+        # Check both windows and mid-window loss, not just the first/last sample.
+        mutations = (
+            ("fake", lambda s: s.update(player_fake=True)),
+            ("missing player identity", lambda s: s.pop("player_fake")),
+            ("null player identity", lambda s: s.update(player_fake=None)),
+            ("nonboolean player identity", lambda s: s.update(player_fake=0)),
+            ("missing audio state", lambda s: s.pop("audio_state")),
+            ("null audio state", lambda s: s.update(audio_state=None)),
+            ("no device", lambda s: s.update(audio_state="no-device")),
+            ("device lost", lambda s: s.update(audio_state="device-lost")),
+            ("starting", lambda s: s.update(audio_state="starting")),
+            ("stalled", lambda s: s.update(audio_state="stalled")),
+            ("stopped", lambda s: s.update(audio_state="stopped")),
+            ("unknown", lambda s: s.update(audio_state="unknown")),
+            ("missing device ID", lambda s: s["audio_settings"].pop("deviceId")),
+            ("null device ID", lambda s: s["audio_settings"].update(deviceId=None)),
+            ("empty device ID", lambda s: s["audio_settings"].update(deviceId="")),
+            ("blank device ID", lambda s: s["audio_settings"].update(deviceId="  ")),
+            ("nonstring device ID", lambda s: s["audio_settings"].update(deviceId=0)),
+            ("device changed", lambda s: s["audio_settings"].update(deviceId="other-output")),
+        )
+        for phase in ("baseline", "ui"):
+            for label, mutate in mutations:
+                with self.subTest(phase=phase, mutation=label):
+                    data = evidence()
+                    mutate(data[phase]["samples"][900])
+                    self.assertEqual(analyze(data)["status"], "inconclusive")
+
+    def test_both_windows_unavailable_or_fake(self):
+        for mutation in (
+            lambda s: s.update(player_fake=True),
+            lambda s: s.pop("player_fake"),
+            lambda s: s.update(audio_state="no-device"),
+            lambda s: s["audio_settings"].update(deviceId=None),
+            lambda s: s["audio_settings"].pop("deviceId"),
+        ):
+            with self.subTest(mutation=mutation):
+                data = evidence()
+                for phase in ("baseline", "ui"):
+                    for sample in data[phase]["samples"]:
+                        mutation(sample)
+                self.assertEqual(analyze(data)["status"], "inconclusive")
+
+    def test_engine_sample_preserves_real_audio_and_fake_identity(self):
+        state = json.loads((Path(__file__).resolve().parents[1] /
+                            "api/examples/state.json").read_text())
+
+        def read():
+            with patch("tools.ui_cost.urlopen",
+                       return_value=io.BytesIO(json.dumps(state).encode())) as get:
+                sample = engine_sample()
+                get.assert_called_once_with("http://127.0.0.1:8770/api/v1/state", timeout=2)
+                return sample
+
+        fake = read()
+        self.assertIs(fake["player_fake"], True)
+        self.assertEqual(fake["audio_state"], "running")
+        self.assertEqual(fake["audio_settings"]["deviceId"], state["engine"]["audio"]["deviceId"])
+        self.assertEqual(fake["dropouts"], 0)
+        state["player"]["fake"] = False
+        state["engine"]["audio"].update(state="running", deviceId="test-output")
+        real = read()
+        self.assertIs(real["player_fake"], False)
+        self.assertEqual(real["audio_state"], "running")
+        self.assertEqual(real["audio_settings"]["deviceId"], "test-output")
+        state["engine"]["audio"].update(state="no-device", deviceId=None)
+        null_audio = read()
+        self.assertEqual(null_audio["audio_state"], "no-device")
+        self.assertIsNone(null_audio["audio_settings"]["deviceId"])
+        del state["player"]["fake"]
+        state["engine"]["audio"] = None
+        missing = read()
+        self.assertIsNone(missing["player_fake"])
+        self.assertIsNone(missing["audio_state"])
+        self.assertIsNone(missing["audio_settings"]["deviceId"])
+        self.assertIsNone(missing["dropouts"])
