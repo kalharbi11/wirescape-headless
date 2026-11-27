@@ -85,7 +85,7 @@ python - "$OUT" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 for k in ("provenance", "window", "summary", "engine_status", "last_status_ns",
-          "sessions", "player_dropped", "collector_overflow", "player_exit",
+          "status_evidence", "sessions", "player_dropped", "collector_overflow", "player_exit",
           "qualification"):
     print(k, json.dumps(d[k], indent=2))
 PY
@@ -101,12 +101,18 @@ never emits a qualification pass: its source deficit is relative to 60,000
 expected CC ingress events, not proof of how many were coalesced versus never
 emitted. The engine's cumulative fifo/latest/oversize drops and the Player
 queue drop counter are separate (including warmup, conservatively); use final
-status after the measurement window. Coalescing can be invisible to these
+status after the measurement window. The pinned protocol carries these counters
+in the nested status.controller envelope. The report retains the latest raw
+controller snapshot per session (null if absent) and its receipt time; the
+status_evidence entry must be valid (all required counters nonnegative integers)
+and fresh (received at or after window.end_ns). A later malformed or missing
+snapshot invalidates earlier valid evidence; absent counters are never zero.
+Coalescing can be invisible to these
 counters, hence verify the source workload independently.
 
 Refuse qualification if window incomplete, source counts not verified,
 anything missing/invalid/unmatched, collector overflow, any drops, multiple
-sessions or graph generations, absent/stale final controller status, or
+sessions or graph generations, absent/malformed/stale final controller status, or
 nonzero Player exit. Require eight distinct sources and the full workload;
 the guide does not assert that the present scripted source meets it. Confirm
 one corresponding setParam ACK for each event. Report p50/p95/p99/max only

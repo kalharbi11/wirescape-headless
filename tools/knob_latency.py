@@ -57,14 +57,18 @@ class Collector:
         self.player_dropped = 0
         self.overflow = 0
 
-    def observe(self, msg):
+    def observe(self, msg, receipt_ns=None):
         session = msg.get("session")
         if not isinstance(session, str) or not session:
             return
         self.sessions.add(session)
-        if msg.get("type") == "status" and isinstance(msg.get("controller"), dict):
-            self.engine_status[session] = msg["controller"]
-            self.last_status_ns[session] = time.monotonic_ns()
+        if msg.get("type") == "status":
+            # Protocol v0 wraps counters in status.controller (0025 §3.4).
+            # Preserve the latest observation even when absent or malformed:
+            # a previous valid status must not mask a later missing one.
+            body = msg.get("status")
+            self.engine_status[session] = body.get("controller") if isinstance(body, dict) else None
+            self.last_status_ns[session] = time.monotonic_ns() if receipt_ns is None else receipt_ns
         if msg.get("type") != "controller":
             return
         for event in msg.get("events", []):
@@ -85,6 +89,32 @@ class Collector:
 
     def row_for(self, event):
         return self._identity.get(id(event))
+
+    def status_evidence(self):
+        """Latest per-session snapshot, with absence, validity and post-window freshness."""
+        evidence = {}
+        for session in sorted(self.sessions):
+            raw = self.engine_status.get(session)
+            receipt = self.last_status_ns.get(session)
+            errors = []
+            if receipt is None:
+                errors.append("no status received")
+            elif not isinstance(raw, dict):
+                errors.append("missing or malformed status.controller")
+            else:
+                if not _uint(raw.get("events")):
+                    errors.append("invalid or missing events")
+                drops = raw.get("dropped")
+                if not isinstance(drops, dict):
+                    errors.append("invalid or missing dropped")
+                else:
+                    for key in ("fifo", "latest", "oversize"):
+                        if not _uint(drops.get(key)):
+                            errors.append("invalid or missing dropped." + key)
+            evidence[session] = {"valid": not errors,
+                                 "fresh": receipt is not None and receipt >= self.end_ns,
+                                 "receipt_ns": receipt, "errors": errors}
+        return evidence
 
 
 def summarize(rows, expected=EXPECTED):
@@ -156,7 +186,7 @@ class ObservedEngine(EngineProcess):
         now = time.monotonic_ns()
         if self.session is not None and msg.get("session") == self.session:
             if msg.get("type") in ("controller", "status"):
-                self.collector.observe(msg)
+                self.collector.observe(msg, receipt_ns=now)
             rid = msg.get("re")
             if "type" not in msg and isinstance(rid, str):
                 future = self._pending.get(rid)
@@ -259,6 +289,7 @@ def main(argv=None):
                   "summary": summarize(collector.rows, collector.expected),
                   "engine_status": collector.engine_status,
                   "last_status_ns": collector.last_status_ns,
+                  "status_evidence": collector.status_evidence(),
                   "sessions": sorted(collector.sessions),
                   "player_dropped": collector.player_dropped,
                   "collector_overflow": collector.overflow, "player_exit": rc,
