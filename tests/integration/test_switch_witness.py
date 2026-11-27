@@ -82,8 +82,8 @@ class SwitchWitness(unittest.IsolatedAsyncioTestCase):
         address = patches[0][0]
         marks = []
 
-        async def wait_receive(deadline, expected):
-            await asyncio.to_thread(w.receive_until, receiver, deadline, expected)
+        async def wait_receive(deadline, expected, retired_gate=None):
+            await asyncio.to_thread(w.receive_until, receiver, deadline, expected, retired_gate)
 
         async def offered_load():
             value = 0.0
@@ -122,10 +122,12 @@ class SwitchWitness(unittest.IsolatedAsyncioTestCase):
                 sender.sendto(w.packet(address + "/in", value), ("127.0.0.1", w.PORT_IN))
                 # Both the new route sentinel and the old gate release must
                 # actually arrive. No retry or widened deadline.
+                retired_gate = (old + "/gate", (0.0,))
                 await wait_receive(acknowledged + .050, {
-                    (address + "/echo", (value,)), (old + "/gate", (0.0,))})
+                    (address + "/echo", (value,)), retired_gate}, retired_gate)
                 swap = eng.swap
                 await asyncio.to_thread(w.wait_for_swap_capture, capture, swap["re"], int(swap["gen"]), 5.0)
+                await asyncio.to_thread(w.assert_no_duplicate_retired_gate, receiver, retired_gate)
                 marks.append((held["re"], swap["re"]))
                 self.assertEqual(core.engine_info["restarts"], 0)
             self.assertEqual(core.current["index"], count % 2)

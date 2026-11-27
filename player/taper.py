@@ -2,7 +2,7 @@
 """Parameter taper: knob travel 0..1 <-> plain value (0025 §2.5 "Taper").
 
 A line-for-line port of lab `apps/studio/src/modules/registry.ts` `normToValue`,
-`valueToNorm` and `quantize` at lab commit 95553fe (LAB_PIN). JavaScript `Math.round`
+`valueToNorm` and `quantize` at lab commit 302bd47 (LAB_PIN). JavaScript `Math.round`
 rounds halves up, so `_js_round` does the same. Tested against values computed from the
 catalogue at LAB_PIN (tests/test_taper.py).
 """

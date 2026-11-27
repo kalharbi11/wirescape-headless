@@ -22,6 +22,7 @@ from .core import PlayerCore
 from .engine_proc import EngineProcess
 from .server import DEFAULT_PORT, ApiServer
 from .state import StateStore
+from .notify import notify, watchdog
 
 
 def engine_argv(state: pathlib.Path, extra: list[str]) -> list[str]:
@@ -50,12 +51,16 @@ def main(argv: list[str]) -> int:
         port = await server.start()
         # The API listens before the engine is up, so a broken engine never hides the fault (0025 §2.2).
         print(f"player: http://127.0.0.1:{port}/  (UI at /ui/)", flush=True)
+        notify("READY=1")
+        heartbeat = asyncio.create_task(watchdog())
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, stop.set)
         starter = loop.create_task(core.start())
         await stop.wait()
+        heartbeat.cancel()
+        await asyncio.gather(heartbeat, return_exceptions=True)
         starter.cancel()
         await core.close()
         await server.close()

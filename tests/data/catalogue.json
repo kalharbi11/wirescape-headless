@@ -2,7 +2,7 @@
  "SPDX-License-Identifier": "GPL-3.0-only",
  "_source": {
   "repo": "kalharbi11/wirescape-lab",
-  "commit": "95553fe3937c31503390ce8f4b58bce6e1ec1960",
+  "commit": "302bd473f8d4db3928efbeec959c8ab4328fdaf1",
   "path": "hello.catalogue",
   "note": "actual pinned sidecar hello; regenerate on LAB_PIN bump with tools/catalogue.py"
  },
