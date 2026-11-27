@@ -1,6 +1,6 @@
 {
  "SPDX-License-Identifier": "GPL-3.0-only",
- "api": "1.0",
+ "api": "1.1",
  "rev": 6,
  "player": {
   "version": "0.1.0",
