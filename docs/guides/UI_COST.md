@@ -12,7 +12,10 @@ patch, workload, sample rate, buffer, audio device, browser version and consent 
 Record the OS, screen configuration (800 × 480), build/binary provenance and patch digest. Verify that
 the installed Player/UI files match the checkout and that the engine is the recorded pin. Only the owner
 may select hardware and grant consent. Device-off preparation is the default; it is not an audio
-dropout qualification by itself.
+dropout qualification by itself. Both timed qualification windows require the real Player
+(`player.fake: false`), a running audio output (`engine.audio.state: running`), and a nonempty
+actual device identifier. Fake, null-audio, stopped, starting, lost, stalled or unknown output is
+inconclusive even if a numeric dropout counter is present.
 
 Choose a reproducible workload that drives the reference Play page at 30 Hz for 30 minutes, without
 switching patches. Record the exact source, configuration and commands and repeat it with the kiosk off
@@ -89,13 +92,16 @@ python tools/ui_cost.py analyze "$EVIDENCE/baseline.json" "$EVIDENCE/ui.json"
 Exit 0 = thresholds pass with complete supplied evidence; 1 = a measured limit fails; 2 =
 inconclusive. A complete record includes sample timestamps (monotonic seconds), UI active state,
 kiosk invocation identity, cumulative CPU microseconds, PID/start-time/RSS rows, engine running state,
-engine restart count, patch index, audio settings and cumulative dropout counter. Example single
+engine restart count, explicit Player identity, audio state, patch index, audio settings and
+cumulative dropout counter. Example single
 sample structure, **illustrative only** (not a complete run):
 
 ```json
 {
   "t": 100.0,
   "engine_running": true,
+  "player_fake": false,
+  "audio_state": "running",
   "engine_restarts": 0,
   "patch_index": 0,
   "audio_settings": {"sampleRate": 48000, "bufferFrames": 256, "deviceId": "example"},
@@ -124,7 +130,11 @@ sample structure, **illustrative only** (not a complete run):
   invocation/cgroup change invalidates the run. Do not put unrelated tasks in the kiosk unit.
 - Use the engine's cumulative audio.dropouts exposed by the localhost Player state; missing,
   noninteger, declining counters, engine restarts, unavailable audio settings or mismatched
-  conditions are inconclusive. A zero is valid only if the real counter explicitly reports zero.
+  conditions are inconclusive. Each sample must explicitly show `player_fake: false` and
+  `audio_state: "running"` with a nonempty string `audio_settings.deviceId`. The device ID,
+  sample rate and buffer must stay identical throughout and between both windows. A zero is
+  valid only if the real, running output explicitly reports zero. Older captures missing these
+  identity fields cannot qualify; recollect rather than infer them.
   Retain service logs and invalidate the run if the Player or engine restarted even if sampled
   counters happen to match.
 
