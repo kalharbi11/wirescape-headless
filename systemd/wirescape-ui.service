@@ -2,11 +2,12 @@
 # Install as a user unit in the graphical session, not as a child of the Player.
 [Unit]
 Description=Wirescape local kiosk
-After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
 Type=simple
+# Retry independently if the local API is not yet listening during boot.
+ExecStartPre=/usr/bin/python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8770/api/v1/state', timeout=2).close()"
 ExecStart=/usr/bin/chromium --kiosk --no-first-run --user-data-dir=%h/.local/share/wirescape-kiosk http://127.0.0.1:8770/ui/
 Restart=always
 RestartSec=2
