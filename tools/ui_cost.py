@@ -48,6 +48,7 @@ def require(condition, message):
 
 def validate_run(run, ui):
     require(isinstance(run, dict), "missing run")
+    require("collection_error" not in run, "collection interrupted: " + str(run.get("collection_error", "")))
     for key in META:
         require(isinstance(run.get(key), str) and bool(run[key].strip()),
                 "missing metadata: " + key)
@@ -174,7 +175,9 @@ def kiosk_sample(ui):
     require(before == unit_properties() and inode == group.stat().st_ino,
             "kiosk restarted during sample")
     require(bool(before.get("InvocationID")), "missing invocation ID")
-    return {"ui_active": True, "invocation": before["InvocationID"] + ":" + str(inode),
+    main = next(p for p in processes if p["pid"] == int(before["MainPID"]))
+    identity = f'{before["InvocationID"]}:{inode}:{main["pid"]}:{main["start"]}'
+    return {"ui_active": True, "invocation": identity,
             "cpu_usec": int(usage["usage_usec"]), "processes": processes}
 
 
