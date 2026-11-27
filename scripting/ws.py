@@ -40,6 +40,9 @@ Modes, chosen by a flag on the script's command line:
   with every held gate sent 0.
 - no flag: run on its own, sending to 127.0.0.1 and the declared port.
 
+Momentary buttons expose a monotonically increasing `.press_count` (initially zero for
+this process), not a latched `.value`. Compare counts to consume presses; restarts start at zero.
+
 The destination is `WS_OSC_HOST` / `WS_OSC_PORT` when set (the runner sets both).
 Sends are capped at 1000 messages/s; drops are counted. While a gate is held, `ws.sleep`
 and every send re-send it every 500 ms, so a script that hangs loses its gates to the OSC In
@@ -305,7 +308,8 @@ class Control:
         if self.id in _controls:
             raise ValueError(f"duplicate control id {self.id!r}")
         self.fields = {k: v for k, v in fields.items() if v is not None}
-        self.value = self.fields.get("default")
+        self.value = None if type_ == "button" else self.fields.get("default")
+        self.press_count = 0
         _controls[self.id] = self
 
     def declaration(self) -> dict:
@@ -429,7 +433,11 @@ def _maybe_heartbeat() -> None:
 def _set_control(cid: str, value: Any) -> None:
     c = _controls.get(cid)
     if c is not None:
-        c.value = value
+        if c.type == "button":
+            if isinstance(value, (int, float)) and value >= .5:
+                c.press_count += 1
+        else:
+            c.value = value
 
 
 def _stdin_reader() -> None:
