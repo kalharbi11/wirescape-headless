@@ -79,6 +79,7 @@ controls (0025 §2.8).
 | warning | `macro-unresolved` | a macro address resolves in no patch of the bundle |
 | warning | `mapping-owned` | a `param` binding on a parameter an in-patch mapping drives |
 | warning | `cc-also-mapped` | a hardware CC that a patch's CC to CV also maps |
+| warning | `script-control-unmapped` | a declared text, notes, label or unbounded number has no v1 mapping (with `--scripts`; once per script/control) |
 | warning | `script-row-missing` | a script output with no enabled OSC In row in an entry that runs it (with `--scripts`) |
 | warning | `no-catalogue` | no catalogue was available, so parameter IDs were not checked |
 | info | `in-patch-faster` | a hardware CC bound to a modulatable `param`: an in-patch mapping has lower latency |
