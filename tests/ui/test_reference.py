@@ -88,7 +88,7 @@ class ReferenceUI(unittest.TestCase):
         with self.page.expect_response(lambda r: r.url.endswith("/command") and r.request.post_data_json.get("type") == "script.restart") as reply:
             self.page.get_by_role("button", name="Restart script").click()
         self.assertTrue(reply.value.json()["ok"])
-        expect(self.page.get_by_role("alert")).to_be_empty()
+        expect(self.page.locator("#error")).to_be_empty()
 
 
 if __name__ == "__main__":
