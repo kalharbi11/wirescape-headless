@@ -34,8 +34,42 @@ change to the design goes to the lab, not here.
 12. **Never loosen to pass:** no skipped test, raised tolerance or widened timeout to turn red into green.
 13. **No force-push and no history rewrite** on shared branches. No commits to `main`.
 
+## Run entry and connected tools
+
+On every run or resume, read this file, [TASKS.md](TASKS.md) (the entry to the detailed
+[task pool](docs/TASKS.md)), and your claimed task issue. Read README.md and the task's named
+specification when needed. Before starting another task or handing back a claim, check your active
+PR's current head, actual CI jobs/logs, review status and latest handoff.
+
+**Triggers:** `headless: run` starts any session. `1:run` through `5:run` identify builder sessions
+`gpt-builder1` through `gpt-builder5` respectively; they all use the same unassigned bundle pool.
+A session name does not reserve a bundle or grant ownership of paths.
+
+Use the connected GitHub tools to read the repo, commit to your task branch and update your PR.
+Use GitHub Actions for routine builds and tests. A chat-shell clone or GitHub DNS failure does not
+block that route when the connected tools work. If a tool action is unavailable or denied, report
+the exact action/error and continue through an available authorized route.
+
+## Build and test on every run
+
+- Check actual **H0/H1 jobs and logs at the current PR head**. A green H1 gate on a draft or
+  docs-only PR can mean engine and UI jobs were skipped; it is not real-engine test evidence.
+  Record what ran, failed or was skipped, with tested SHA and run/job links.
+- Push to run H0; mark ready when eligible for H1. For code changes, verify the real pinned-engine
+  acceptance jobs on Linux x64 and arm64, catalogue parity and applicable UI jobs actually executed.
+  A previous head's green run does not qualify a changed head.
+- Pending CI: record run links and the next action. A failure: read the first failing step and
+  correct it on the same branch/PR. Report whether the test-first commit actually ran before the fix.
+- For live reference-UI checks, Playwright screenshots or alternate-pin tests not covered by
+  routine Actions, use a Codex environment with an appropriate wirescape-headless checkout,
+  tools and exact revisions. Test the UI against the fake Player API where applicable.
+  Record this evidence separately; an alternate pin does not change LAB_PIN.
+- Keep devices off and use `--null-audio`; localhost only. H2 is dispatched only when the owner
+  asks. Pi smoke, soaks, latency and UI-cost measurements remain owner-run and unmeasured until recorded.
+- Testing tiers, workflows and merge gates below are unchanged.
+
 ## Work
-- **Task pool:** [docs/TASKS.md](docs/TASKS.md). The trigger `headless: run` starts any agent on the next free
+- **Task pool:** [TASKS.md](TASKS.md) → [docs/TASKS.md](docs/TASKS.md). The trigger `headless: run` starts any agent on the next free
   bundle. Nobody is assigned.
 - One task issue, one branch and one PR against `main`, with the task ID (H-n) in the title. Write the
   failing test first.
@@ -66,9 +100,13 @@ change to the design goes to the lab, not here.
 **Status:** done | handoff-ready | blocked   **PR:** #…   **Head:** sha7
 **Done:** …
 **Next:** …
-**Tests:** command or run link → result
+**Tests:** tested SHA; run/job links → what ran, failed or was skipped
+**Limitations:** dependencies, lab issues and unmeasured owner-only rows
 Signed: <name>, <YYYY-MM-DD>
 ```
 Dates are New York time.
 
 Signed: claude-planner, 2026-11-26
+
+Run-entry and evidence guidance updated at the owner's request.
+Signed: codex-lead, 2026-11-27, 14:01 EST
