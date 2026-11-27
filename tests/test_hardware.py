@@ -4,6 +4,7 @@ import asyncio
 import json
 
 from tests.test_api import Base
+from tests import apiclient as api
 
 
 class Hardware(Base):
@@ -85,3 +86,18 @@ class Hardware(Base):
         await self.send(kind="pc", deviceId="surface:a", channel=2, program=1)
         await asyncio.sleep(.2)
         self.assertEqual((await self.state())["current"]["index"], 5)
+
+    async def test_controller_overflow_is_visible_to_existing_subscriber(self):
+        async with api.Events(self.port) as events:
+            kind, _ = await events.next()
+            self.assertEqual(kind, "state")
+            self.core.controller_events([{"kind": "unknown"}] * 1025)
+            # Drain the state/status stream without issuing an unrelated
+            # command that would incidentally refresh the state.
+            async def warning():
+                while True:
+                    kind, data = await events.next()
+                    if kind == "state" and any("Controller queue dropped 1 events" in w
+                                               for w in data["warnings"]):
+                        return
+            await asyncio.wait_for(warning(), 4)
