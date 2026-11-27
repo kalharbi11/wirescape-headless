@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import fnmatch
 import logging
 import pathlib
 import time
@@ -107,13 +108,18 @@ class PlayerCore:
         self._debounce: asyncio.TimerHandle | None = None
         self._debounce_target: int | None = None
         self._pc_ignored: dict[int, int] = {}
+        self._controller_queue: asyncio.Queue = asyncio.Queue(1024)
+        self._controller_dropped = 0
+        self._controller_sse: list[dict] = []
+        self._pickup: dict[tuple, tuple[float, bool]] = {}
+        self._buttons: dict[tuple, bool] = {}
         self._recheck()
 
     # ================================================================ lifecycle
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
-        self._tasks = [loop.create_task(self._ticker()), loop.create_task(self._watchdog())]
+        self._tasks = [loop.create_task(self._ticker()), loop.create_task(self._watchdog()), loop.create_task(self._consume_controllers())]
         first = 0
         init = self.initial
         if init and init.get("bundle") in self.bundles:
@@ -245,6 +251,9 @@ class PlayerCore:
         while True:
             await asyncio.sleep(period)
             n += 1
+            if self._controller_sse:
+                events, self._controller_sse = self._controller_sse, []
+                self._broadcast("controller", {"events": events})
             if self._dirty_values:
                 vals, self._dirty_values = self._dirty_values, {}
                 self._broadcast("values", {"rev": self.rev, "values": vals})
@@ -276,9 +285,124 @@ class PlayerCore:
         self._broadcast("state", self.state_doc())
 
     def controller_events(self, events: list[dict]) -> None:
-        """Raw controller observations (0025 §3.2). The hardware map (H-7) consumes them too."""
-        if events:
-            self._broadcast("controller", {"events": events})
+        """Bounded, ordered engine observations; no device I/O in the Player."""
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            if len(self._controller_sse) < 1024:
+                self._controller_sse.append(event)
+            if self._controller_queue.full():
+                self._controller_dropped += 1
+                continue
+            self._controller_queue.put_nowait((self.bundle, event))
+        if self._controller_dropped:
+            self._status_dirty = True
+
+    @staticmethod
+    def _midi_matches(source: dict, event: dict) -> bool:
+        dev, channel = event.get("deviceId"), event.get("channel")
+        return (isinstance(dev, str) and fnmatch.fnmatchcase(dev, source.get("device", "*"))
+                and (source.get("channel", "any") == "any" or source["channel"] == channel))
+
+    async def _consume_controllers(self) -> None:
+        while True:
+            bundle, event = await self._controller_queue.get()
+            if bundle is not self.bundle or self._stopping:
+                continue
+            try:
+                await self._map_controller(event)
+            except (CommandError, ValueError, TypeError) as exc:
+                log.warning("controller mapping refused: %s", exc)
+
+    async def _map_controller(self, event: dict) -> None:
+        kind = event.get("kind")
+        if kind == "pc":
+            pc = self.bundle.config.get("programChange", {})
+            program = event.get("program")
+            if isinstance(pc, dict) and pc.get("enabled", True) and self._midi_matches(pc, event) and isinstance(program, int):
+                self.program_change(program)
+            return
+        for n, binding in enumerate(self.bundle.config.get("hardware", [])):
+            if not isinstance(binding, dict):
+                continue
+            source = binding.get("source")
+            if B.source_key(source) is None:
+                continue
+            norm, trigger, physical = None, False, ()
+            if "midi" in source:
+                m = source["midi"]
+                if not self._midi_matches(m, event):
+                    continue
+                physical = (event.get("deviceId"), event.get("channel"))
+                if kind == "cc" and m.get("cc") == event.get("controller"):
+                    value = event.get("value")
+                    if not isinstance(value, int) or not 0 <= value <= 127:
+                        continue
+                    norm = value / 127
+                    button = (n, *physical)
+                    high = value >= 64
+                    trigger = high and not self._buttons.get(button, False)
+                    self._buttons[button] = high
+                elif kind == "noteOn" and m.get("note") == event.get("note") and event.get("velocity", 0) > 0:
+                    trigger, norm = True, 1.0
+                else:
+                    continue
+            elif kind == "osc":
+                osc = source["osc"]
+                if event.get("address") != osc["address"]:
+                    continue
+                physical = (event.get("port"),)
+                args = event.get("args", [])
+                arg = osc.get("arg", 0)
+                if not isinstance(args, list):
+                    continue
+                if not args and "action" in binding:
+                    trigger = True
+                elif arg < len(args) and _finite(args[arg]):
+                    lo, hi = osc.get("min", 0), osc.get("max", 1)
+                    if lo == hi:
+                        continue
+                    norm = min(1.0, max(0.0, (args[arg] - lo) / (hi - lo)))
+                    button = (n, *physical)
+                    high = norm >= .5
+                    trigger = high and not self._buttons.get(button, False)
+                    self._buttons[button] = high
+                else:
+                    continue
+            else:
+                continue
+            if "action" in binding:
+                if not trigger:
+                    continue
+                action = binding["action"]
+                if action == "next":
+                    self.debounced_step(1)
+                elif action == "prev":
+                    self.debounced_step(-1)
+                elif action == "panic":
+                    await self.command({"type": "panic"})
+                elif isinstance(action, dict) and isinstance(action.get("select"), int):
+                    self.debounced_select(action["select"])
+                continue
+            if norm is None or self.current["switching"]:
+                continue
+            cid = binding.get("control")
+            control = next((c for c in self._controls() if c.get("id") == cid), None)
+            resolved = self._resolve(control["target"]) if control else None
+            if resolved is None:
+                continue
+            if binding.get("takeover") == "pickup":
+                key = (n, *physical, resolved["key"])
+                value = self._current_value(resolved)
+                if value is None:
+                    continue
+                target = taper.value_to_norm(resolved["meta"], value)
+                previous, picked = self._pickup.get(key, (norm, False))
+                picked = picked or min(previous, norm) <= target <= max(previous, norm)
+                self._pickup[key] = (norm, picked)
+                if not picked:
+                    continue
+            await self.cmd_set({"control": cid, "norm": norm})
 
     # ================================================================ state document
 
@@ -299,7 +423,7 @@ class PlayerCore:
                         for s in (e.scripts if e else [])],
             "midi": {"devices": copy.deepcopy(self.midi_devices)},
             "osc": {"controlPort": self.control_port, "routes": copy.deepcopy(self.osc_status.get("routes", []))},
-            "warnings": ([NO_BUNDLE] if not self.bundles else []) + list(self.warnings) + [
+            "warnings": ([NO_BUNDLE] if not self.bundles else []) + list(self.warnings) + ([f"Controller queue dropped {self._controller_dropped} events"] if self._controller_dropped else []) + [
                 f"Program Change {n} has no setlist entry (ignored {k}x)" for n, k in sorted(self._pc_ignored.items())],
         }
 
@@ -485,6 +609,7 @@ class PlayerCore:
         self._inflight = None
         if reply.get("ok"):
             self.current.update(index=index, error=None)
+            self._pickup.clear()
             self._boot_target = None
             self.patch = self.bundle.load_patch(e)
             self._refresh_warnings()
@@ -712,6 +837,12 @@ class PlayerCore:
             raise CommandError("not-found", f"no bundle {name!r}")
         if self.bundles[name] is not self.bundle:
             self.bundle = self.bundles[name]
+            self._pickup.clear()
+            self._buttons.clear()
+            if self._debounce:
+                self._debounce.cancel()
+                self._debounce = None
+                self._debounce_target = None
             self.current.update(index=None, pending=None, error=None)
             self.values = {}
             self.patch = None
