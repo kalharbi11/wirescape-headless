@@ -66,7 +66,8 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
 
     async def start_player(self):
         self.core = PlayerCore({self.bundle.name: self.bundle}, self.factory,
-                               store=self.store, initial=self.store.load())
+                               store=self.store, initial=self.store.load(),
+                               control_port=self.bundle.config.get("osc", {}).get("controlPort", 0))
         self.server = ApiServer(self.core, port=0)
         self.port = await self.server.start()
         self.addAsyncCleanup(self.server.close)
@@ -274,6 +275,65 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
             self.assertIs(event["matched"], True)
             self.assertEqual(event["args"], [.5])
             self.assertEqual(event["port"], port)
+
+    async def test_p1e2_control_port_survives_graph_switch(self):
+        # A111: the launch-only control listener is engine-owned and has no
+        # patch OSC rows. The old P1-e pin fails this capability assertion.
+        self.assertIn("controllerStream.controlPort", self.core.engine_info["capabilities"])
+        await self.core.close()
+        await self.server.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reserve:
+            reserve.bind(("127.0.0.1", 0))
+            port = reserve.getsockname()[1]
+        config = {"format": "wirescape.player", "version": 1,
+                  "osc": {"controlPort": port},
+                  "setlist": [{"patch": "patches/basics-01-first-tone.json",
+                               "controls": [{"id": "pitch", "target": {
+                                   "param": {"module": 2, "param": "frequency"}}}]}
+                              for _ in range(2)],
+                  "hardware": [{"source": {"osc": {"address": "/h15/pitch"}},
+                                "control": "pitch"}]}
+        (self.bundle_dir.root / "player.json").write_text(json.dumps(config))
+        self.bundle = B.load(self.bundle_dir.root)
+        self.extra_engine_args = ["--control-osc-port", str(port)]
+        await self.start_player()
+        engine = self.engines[-1]
+        pid = engine.pid
+
+        def padded(value):
+            raw = value.encode() + bytes(1)
+            return raw + bytes(1) * (-len(raw) % 4)
+
+        async with api.Events(self.port, controller=True) as events:
+            self.assertEqual((await events.next())[0], "state")
+            for index, norm in ((0, .25), (1, .75)):
+                await self.ok(type="select", index=index)
+                await self.until(lambda s: engine.status_by_gen is not None
+                                 and engine.status_by_gen[0] == engine.load_gen
+                                 and any(route.get("module") == "control"
+                                         and route["port"] == port
+                                         and route["state"] == "listening"
+                                         and route["bind"] == "127.0.0.1"
+                                         for route in engine.status_by_gen[1].get("routes", [])))
+                packet = padded("/h15/pitch") + padded(",f") + struct.pack(">f", norm)
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+                    sender.sendto(packet, ("127.0.0.1", port))
+                async with asyncio.timeout(5):
+                    data = await events.until("controller", lambda d: any(
+                        e["kind"] == "osc" and e["address"] == "/h15/pitch"
+                        and e["args"] == [norm] for e in d["events"]))
+                V["event"].validate({"event": "controller", "data": data})
+                event = next(e for e in data["events"]
+                             if e["kind"] == "osc" and e["address"] == "/h15/pitch"
+                             and e["args"] == [norm])
+                self.assertIs(event["matched"], False)
+                self.assertEqual(event["port"], port)
+                await self.until(lambda s: abs(s["controls"]["pitch"]["norm"] - norm) < 1e-5)
+                self.assertEqual(engine.pid, pid)
+        await self.core.close()
+        self.assertEqual(engine.proc.returncode, 0)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as released:
+            released.bind(("127.0.0.1", port))
 
     async def test_pg3_and_pg7_api_switches_with_sse_disconnect(self):
         count = int(os.environ.get("WIRESCAPE_SWITCH_COUNT", "50"))
