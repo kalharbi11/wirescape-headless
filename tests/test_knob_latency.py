@@ -1,0 +1,179 @@
+# SPDX-License-Identifier: GPL-3.0-only
+"""H-16: correlation, units, tails, provenance and honest missing evidence."""
+import asyncio
+import json
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+from tools.knob_latency import (Collector, ObservedCore, ObservedEngine,
+                                summarize, validate_provenance)
+from player.core import PlayerCore
+
+
+class KnobLatencyTests(unittest.TestCase):
+    def setUp(self):
+        self.c = Collector(start_ns=1_000_000_000, duration_s=1, expected=3)
+
+    def event(self, controller=1, t=1_100_000, value=64):
+        return dict(kind="cc", deviceId="scripted", channel=1,
+                    controller=controller, value=value, t=t)
+
+    def observe(self, event, session="s1"):
+        self.c.observe({"type": "controller", "session": session, "gen": "4",
+                        "events": [event]})
+        return self.c.row_for(event)
+
+    def ack(self, row, re="p1", ns=1_105_000_000, ok=True, session="s1"):
+        row["requests"].append({"command": {"type": "setParam", "moduleId": 2,
+                                           "paramId": "frequency", "value": 64},
+                                "reply": {"re": re, "ok": ok, "session": session},
+                                "receipt_ns": ns})
+
+    def test_units_percentiles_and_source_deficit(self):
+        a, b = self.observe(self.event()), self.observe(self.event(2))
+        self.ack(a, "p1", 1_101_000_000)
+        self.ack(b, "p2", 1_112_000_000)
+        s = summarize(self.c.rows, expected=3)
+        self.assertEqual(s["paired"], 2)
+        self.assertEqual(s["source_deficit"], 1)
+        self.assertEqual(s["p50_ms"], 1.0)
+        self.assertEqual(s["p99_ms"], 12.0)
+        self.assertEqual(s["max_ms"], 12.0)
+
+    def test_same_cc_value_and_timestamp_are_not_identity(self):
+        a, b = self.event(), self.event()
+        row_a, row_b = self.observe(a), self.observe(b)
+        self.assertIsNot(row_a, row_b)
+        self.ack(row_b)
+        s = summarize(self.c.rows, expected=2)
+        self.assertEqual(s["paired"], 1)
+        self.assertEqual(s["unmatched"], 1)
+
+    def test_reject_duplicate_reply_cross_session_negative_and_refusal(self):
+        rows = [self.observe(self.event(i)) for i in range(5)]
+        self.ack(rows[0], "p1")
+        self.ack(rows[1], "p1")
+        self.ack(rows[2], "p2", session="other")
+        self.ack(rows[3], "p3", ns=1_099_999_999)
+        self.ack(rows[4], "p4", ok=False)
+        s = summarize(self.c.rows, expected=5)
+        self.assertEqual(s["paired"], 0)
+        self.assertEqual(s["invalid"], 5)
+        self.assertIsNone(s["p99_ms"])
+
+    def test_no_pair_for_fanout_or_non_parameter_request(self):
+        a, b = self.observe(self.event()), self.observe(self.event(2))
+        self.ack(a, "p1")
+        self.ack(a, "p2")
+        self.ack(b, "p3")
+        b["requests"][0]["command"]["type"] = "setModAmount"
+        s = summarize(self.c.rows, expected=2)
+        self.assertEqual(s["invalid"], 2)
+        self.assertEqual(s["paired"], 0)
+
+    def test_window_and_missing_timestamp(self):
+        self.assertIsNone(self.observe(self.event(t=999_999)))
+        self.assertIsNone(self.observe(self.event(t=2_000_000)))
+        row = self.observe(self.event(t=None))
+        self.assertIsNotNone(row)
+        self.ack(row)
+        self.assertEqual(summarize(self.c.rows, expected=1)["invalid"], 1)
+
+    def test_explicit_drop_counters(self):
+        self.c.observe({"type": "status", "session": "s1",
+                        "status": {"controller": {"events": 10, "dropped": {"fifo": 0, "latest": 2, "oversize": 0}}}})
+        self.c.player_dropped = 3
+        self.assertEqual(self.c.engine_status["s1"]["dropped"]["latest"], 2)
+        self.assertEqual(self.c.player_dropped, 3)
+
+    def test_provenance_refuses_missing_invalid_clock(self):
+        valid = dict(headless_sha="a"*40, lab_sha="b"*40, binary_sha256="c"*64,
+                     platform="Linux", clock="CLOCK_MONOTONIC", ingress_unit="us", receipt_unit="ns")
+        validate_provenance(valid)
+        for key, value in (("headless_sha", "abc"), ("lab_sha", None),
+                           ("clock", "wall"), ("platform", "Darwin"), ("receipt_unit", "ms")):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_provenance({**valid, key: value})
+
+
+class AdapterReceiptTests(unittest.IsolatedAsyncioTestCase):
+    async def test_nested_status_dispatch_freshness_and_wrong_session(self):
+        collector = Collector(1_000_000_000, 1, 1)
+        engine = ObservedEngine("unused", [], collector)
+        engine.session = "s1"
+        good = {"events": 10, "dropped": {"fifo": 0, "latest": 2, "oversize": 0}}
+        def status(body, ns, session="s1"):
+            with patch("tools.knob_latency.time.monotonic_ns", return_value=ns):
+                engine._dispatch({"v": 0, "type": "status", "session": session,
+                                  "gen": "4", "status": body})
+        status({"controller": good}, 1_500_000_000)
+        self.assertEqual(collector.engine_status["s1"], good)
+        self.assertEqual(collector.last_status_ns["s1"], 1_500_000_000)
+        self.assertFalse(collector.status_evidence()["s1"]["fresh"])
+        status({"controller": good}, 2_010_000_000, "wrong")
+        self.assertNotIn("wrong", collector.engine_status)
+        self.assertFalse(collector.status_evidence()["s1"]["fresh"])
+        status({"controller": good}, 2_020_000_000)
+        self.assertTrue(collector.status_evidence()["s1"]["fresh"])
+        self.assertTrue(collector.status_evidence()["s1"]["valid"])
+        for body in ({}, {"controller": None}, {"controller": {"events": 10}},
+                     {"controller": {"events": 10, "dropped": {"fifo": 0, "latest": True, "oversize": 0}}},
+                     {"controller": {"events": -1, "dropped": {"fifo": 0, "latest": 0, "oversize": 0}}}):
+            with self.subTest(body=body):
+                status(body, 2_030_000_000)
+                self.assertFalse(collector.status_evidence()["s1"]["valid"])
+                self.assertTrue(collector.status_evidence()["s1"]["fresh"])
+                self.assertEqual(collector.engine_status["s1"], body.get("controller"))
+                self.assertEqual(collector.last_status_ns["s1"], 2_030_000_000)
+        status({"controller": good}, 2_040_000_000)
+        self.assertTrue(collector.status_evidence()["s1"]["valid"])
+        self.assertEqual(collector.engine_status["s1"]["dropped"]["latest"], 2)
+
+
+    async def test_dispatch_pairs_actual_request_and_ignores_other_task_and_session(self):
+        collector = Collector(1_000_000_000, 1, 1)
+        engine = ObservedEngine("unused", [], collector)
+        engine.session = "s1"
+        event = dict(kind="cc", deviceId="test", channel=1, controller=1, value=64,
+                     t=1_100_000)
+        engine._dispatch({"type": "controller", "session": "s1", "gen": "4",
+                          "events": [event]})
+
+        class Stdin:
+            def write(self, payload):
+                request = json.loads(payload)
+                reply = {"re": request["id"], "ok": True, "session": "s1"}
+                engine._dispatch({**reply, "session": "wrong"})
+                self.assert_not_received(request["id"])
+                with patch("tools.knob_latency.time.monotonic_ns", return_value=1_107_000_000):
+                    engine._dispatch(reply)
+
+            def assert_not_received(self, rid):
+                if rid in engine._receipts:
+                    raise AssertionError("wrong session accepted")
+
+            async def drain(self):
+                pass
+
+        engine.proc = SimpleNamespace(stdin=Stdin())
+        core = object.__new__(ObservedCore)
+        core.collector = collector
+        command = {"type": "setParam", "moduleId": 2, "paramId": "frequency", "value": 64}
+
+        async def map_controller(_core, _event):
+            # Child task inherits ContextVar but is not the mapping task.
+            await asyncio.create_task(engine.request(command))
+            await engine.request(command)
+
+        with patch.object(PlayerCore, "_map_controller", map_controller):
+            await core._map_controller(event)
+        row = collector.row_for(event)
+        self.assertTrue(row["mapped"])
+        self.assertEqual(len(row["requests"]), 1)
+        self.assertEqual(row["requests"][0]["reply"]["re"], "p2")
+        self.assertEqual(summarize(collector.rows, expected=1)["p99_ms"], 7.0)
+        self.assertEqual(engine._receipts, {})
+
+
+if __name__ == "__main__":
+    unittest.main()
