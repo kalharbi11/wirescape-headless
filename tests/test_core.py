@@ -112,12 +112,27 @@ class Supervisor(CoreBase):
         for _ in range(3):
             await self.crash_and_wait()
         self.assertEqual(self.delays, [0.25, 0.5, 1])
-        clock.t += 29
-        await asyncio.sleep(0.1)  # status pushes arrive while healthy, but not 30 s yet
+        def healthy_for(seconds):
+            # Advance the synthetic clock together with synthetic heartbeats.
+            # A single jump followed by a real sleep races the watchdog and
+            # models an unhealthy gap if its timer fires before fake status.
+            engine = self.fake
+            restarts = self.core.engine_info["restarts"]
+            for _ in range(seconds * 4):
+                clock.t += 0.25
+                engine.on_push({"type": "status", "session": engine.session,
+                                "gen": str(engine.gen),
+                                "status": {"audio": dict(engine.audio),
+                                           "midi": {"devices": engine.midi_devices},
+                                           "osc": engine._osc_status()}})
+            self.assertIs(self.fake, engine)
+            self.assertEqual(self.core.engine_info["restarts"], restarts)
+            self.assertEqual(self.core._last_status, clock.t)
+
+        healthy_for(29)
         await self.crash_and_wait()
         self.assertEqual(self.delays[-1], 2)
-        clock.t += 31
-        await asyncio.sleep(0.1)
+        healthy_for(31)
         await self.crash_and_wait()
         self.assertEqual(self.delays[-1], 0.25)
 
