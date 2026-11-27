@@ -11,8 +11,20 @@ Use the commands from the [Pi install guide](INSTALL_PI.md); all API requests ar
 
 ## 1. Boot device-off
 
-Install the example bundle using steps 1–3 of INSTALL_PI. Use the unmodified unit with
-`--null-audio`. In a second terminal:
+Complete INSTALL_PI steps 1–2. From the headless checkout, prepare a separate smoke bundle
+that replaces the keyboard-gated first entry with a quiet, script-gated tone. Original examples
+are unchanged. Use a new directory and a disposable installation/state.
+
+```sh
+python3 tools/make_smoke_bundle.py make ./smoke-example-bundle
+python3 -m player check ./smoke-example-bundle --scripts
+sudo cp -a smoke-example-bundle /opt/wirescape-headless/
+(cd /opt/wirescape-headless && sudo -u wirescape-player python3 -m player install smoke-example-bundle --state /var/lib/wirescape-player)
+sudo systemctl restart wirescape-player.service
+```
+
+Use the unmodified unit with `--null-audio`. On a fresh state this is the only installed bundle.
+In a second terminal:
 
 ```sh
 state() { curl -fsS http://127.0.0.1:8770/api/v1/state; }
@@ -44,19 +56,19 @@ cmd '{"type":"select","index":0}'
 ```
 
 **Check:** each reply has ok true; the selected device is the intended one. Unmute gently;
-hear the First tone entry. If sound is unexpected, mute and restore null audio.
+hear the quiet held First tone (smoke gate) entry, with no keyboard needed. If sound is unexpected, mute and restore null audio.
 
 ## 3. Entry switching
 
 ```sh
 state
-pgrep -a -x wirescape-engine
+pgrep -af '(^|/)wirescape-engine( |$)'
 cmd '{"type":"select","index":2}'
 cmd '{"type":"set","control":"tempo","value":135}'
 cmd '{"type":"select","index":3}'
 cmd '{"type":"select","index":2}'
 state
-pgrep -a -x wirescape-engine
+pgrep -af '(^|/)wirescape-engine( |$)'
 ```
 
 **Check:** correct entry/audio after each switch, same engine PID and restart count, tempo 135
@@ -80,23 +92,29 @@ do not enable MIDI for these steps.
 
 ## 5. Script lifecycle and gate zero
 
-Select entry 5. Inspect the declared script and its state:
+Mute the interface. On the checkout, start the loopback-only gate monitor in a separate terminal:
 
 ```sh
-cmd '{"type":"select","index":5}'
+python3 tools/make_smoke_bundle.py listen
+```
+
+Select the smoke first tone, then restart the script if necessary to witness both transitions.
+
+```sh
+cmd '{"type":"select","index":0}'
+cmd '{"type":"script.stop","file":"scripts/smoke_gate.py"}'
+cmd '{"type":"script.start","file":"scripts/smoke_gate.py"}'
 state
-cmd '{"type":"set","control":"dens","norm":1}'
-cmd '{"type":"script.stop","file":"scripts/generative_ws.py"}'
+# Wait until the monitor prints graph gate: 1.
+cmd '{"type":"script.stop","file":"scripts/smoke_gate.py"}'
 state
 ```
 
-**Check:** script runs, responds to density, stops independently of the engine. The shipped
-scene has no matching OSC In rows, so it cannot witness a gate inside the graph. To verify the gate,
-use a trusted Studio patch with the OSC In rows from `examples/osc_in_script_rows.json` (port 9000),
-route gate rows to a visible meter or audible voice, and install that separate test bundle with
-the same script declaration. Stop while a gate is held: verify it drops to zero; report the
-actual observation or mark gate verification untested. Do not modify installed patches.
-The H1 `test_real_script.py` test is a separate device-off witness, not owner hardware evidence.
+**Check:** the monitor prints graph gate: 1 then graph gate: 0; the script stops independently
+of the engine. Compare PID/restarts before and after. The monitor receives the engine's OSC Out
+row (not the script's raw send), so the result witnesses the graph. Report any missing transition
+as fail; the H1 integration test is a separate device-off witness, not hardware evidence.
+Stop the monitor with Ctrl-C. Do not modify installed patches.
 
 ## 6. Recovery (disposable state only)
 
@@ -108,7 +126,8 @@ Alternatively use the safer simulated corruption test below (record which was do
 
 ```sh
 sudo systemctl stop wirescape-player.service
-sudo cp -a /var/lib/wirescape-player /var/lib/wirescape-player-smoke-backup
+sudo test ! -e /var/lib/wirescape-player-smoke-backup && sudo cp -a /var/lib/wirescape-player /var/lib/wirescape-player-smoke-backup
+# Proceed only if the backup succeeded; otherwise stop and choose a new backup path.
 printf '{' | sudo tee /var/lib/wirescape-player/state.json >/dev/null
 sudo systemctl start wirescape-player.service
 state
