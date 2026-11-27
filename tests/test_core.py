@@ -138,9 +138,12 @@ class Supervisor(CoreBase):
         C.HELLO_TIMEOUT = 0.1
         try:
             await self.core.close()
-            self.core = PlayerCore({self.bundle.name: self.bundle}, factory, fake=True)
+            self.core = PlayerCore({self.bundle.name: self.bundle}, factory, fake=True,
+                                   initial=S.state_doc(self.bundle.name, 2, {}))
             await self.core.start()
-            await self.until(lambda: self.core.engine_info["state"] == "running", 2.0)
+            await self.until(lambda: self.core.engine_info["state"] == "running"
+                             and self.core.current["index"] == 2 and self.fake.graph is not None, 2.0)
+            self.assertEqual(len(self.loads()), 1)
         finally:
             C.HELLO_TIMEOUT = old
         self.assertEqual(self.core.engine_info["restarts"], 1)
