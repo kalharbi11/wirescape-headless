@@ -110,6 +110,7 @@ class PlayerCore:
         self._pc_ignored: dict[int, int] = {}
         self._controller_queue: asyncio.Queue = asyncio.Queue(1024)
         self._controller_dropped = 0
+        self._controller_reported = 0
         self._controller_sse: list[dict] = []
         self._pickup: dict[tuple, tuple[float, bool]] = {}
         self._buttons: dict[tuple, bool] = {}
@@ -251,6 +252,9 @@ class PlayerCore:
         while True:
             await asyncio.sleep(period)
             n += 1
+            if self._controller_reported != self._controller_dropped:
+                self._controller_reported = self._controller_dropped
+                self._changed()
             if self._controller_sse:
                 events, self._controller_sse = self._controller_sse, []
                 self._broadcast("controller", {"events": events})
