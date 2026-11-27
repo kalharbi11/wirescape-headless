@@ -132,6 +132,7 @@ class Script:
         self._started_at = 0.0
         self._heartbeat = 0.0
         self._watch: asyncio.Task | None = None
+        self._spawning: asyncio.Task | None = None
 
     # -- public --------------------------------------------------------------------
 
@@ -144,6 +145,8 @@ class Script:
     async def stop(self) -> None:
         self._want = False
         if self._task:
+            if self._spawning is not None:
+                await asyncio.shield(self._spawning)
             self._task.cancel()
             try:
                 await self._task
@@ -192,7 +195,11 @@ class Script:
     async def _supervise(self) -> None:
         loop = asyncio.get_running_loop()
         while self._want:
-            self.proc = await self._spawn()
+            self._spawning = loop.create_task(self._spawn())
+            try:
+                self.proc = await asyncio.shield(self._spawning)
+            finally:
+                self._spawning = None
             self._started_at = self._heartbeat = self.clock()
             self._set("running")
             for cid, v in self.values.items():  # re-sent after a restart (0025 §4.5)
@@ -203,7 +210,10 @@ class Script:
                 rc = await self.proc.wait()
             finally:
                 self._watch.cancel()
+                await asyncio.gather(self._watch, return_exceptions=True)
             self.last_exit = rc
+            if self.proc.stdin is not None:
+                self.proc.stdin.close()
             await zero_gates(self.port, gate_addresses(self.declaration))
             if not self._want:
                 return

@@ -433,18 +433,34 @@ def _set_control(cid: str, value: Any) -> None:
 
 
 def _stdin_reader() -> None:
-    for line in sys.stdin:
-        try:
-            msg = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(msg, dict):
-            continue
-        if msg.get("type") == "control":
-            _set_control(str(msg.get("id")), msg.get("value"))
-        elif msg.get("type") == "stop":
-            break
-    _stop.set()  # a stop message, or the runner went away (stdin EOF)
+    # A daemon blocked in TextIOWrapper.readline holds the buffered stdin lock
+    # during CPython shutdown. Use raw reads so a natural script exit cannot
+    # abort the interpreter while the supervisor still owns the write end.
+    fd = sys.stdin.fileno()
+    pending = bytearray()
+    try:
+        while True:
+            chunk = os.read(fd, 4096)
+            if not chunk:
+                return
+            pending.extend(chunk)
+            while b"\n" in pending:
+                line, _, rest = pending.partition(b"\n")
+                pending = bytearray(rest)
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(msg, dict):
+                    continue
+                if msg.get("type") == "control":
+                    _set_control(str(msg.get("id")), msg.get("value"))
+                elif msg.get("type") == "stop":
+                    return
+    except OSError:
+        pass
+    finally:
+        _stop.set()  # stop, stdin EOF or pipe failure
 
 
 def start(name: str | None = None, port: int = 9000) -> None:
