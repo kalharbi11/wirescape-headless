@@ -40,11 +40,21 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
                     *getattr(self, "extra_engine_args", [])])
                 eng.commands = []
                 eng.command_times = []
+                eng.status_by_gen = None
+                eng.load_gen = None
+
+            def _dispatch(eng, msg):
+                if msg.get('session') == eng.session and msg.get('type') == 'status':
+                    eng.status_by_gen = (msg.get('gen'), msg['status'].get('osc', {}))
+                super()._dispatch(msg)
 
             async def request(eng, msg):
                 eng.commands.append(msg)
                 eng.command_times.append(asyncio.get_running_loop().time())
-                return await super().request(msg)
+                reply = await super().request(msg)
+                if msg['type'] == 'loadGraph' and reply.get('ok'):
+                    eng.load_gen = reply['gen']
+                return reply
 
         def factory():
             engine = RecordingEngine()
@@ -241,8 +251,13 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
                      if engine.commands[i]["type"] == "loadGraph"]
             self.assertEqual(len(loads), 1, engine.commands[start:])
             self.assertGreaterEqual(engine.command_times[loads[0]] - before, .5)
-            await self.until(lambda s: any(route["port"] == port and route["state"] == "listening"
-                                          for route in s["osc"]["routes"]))
+            # A previous graph may report the same port. Wait for the new
+            # generation before sending the single datagram (no retry).
+            await self.until(lambda s: engine.status_by_gen is not None
+                             and engine.status_by_gen[0] == engine.load_gen
+                             and any(route["port"] == port and route["state"] == "listening"
+                                     and route["bind"] == "127.0.0.1"
+                                     for route in engine.status_by_gen[1].get("routes", [])))
             def padded(value):
                 raw = value.encode() + bytes(1)
                 return raw + bytes(1) * (-len(raw) % 4)
