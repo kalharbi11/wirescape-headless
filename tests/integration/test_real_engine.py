@@ -13,7 +13,8 @@ from player.server import ApiServer
 from player.state import StateStore
 from tests import apiclient as api
 from tests.helpers import TempBundle
-from tests.test_api import V, Endpoints, Commands
+from tests import test_api as contract
+V = contract.V
 
 
 class RealEngine(unittest.IsolatedAsyncioTestCase):
@@ -79,16 +80,16 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
     # Execute the same API contract cases used against the fake. Cases that
     # inspect fake internals or require the not-yet-pinned controller stream
     # are covered by real-engine witnesses separately.
-    test_stream_starts_with_state = Endpoints.test_stream_starts_with_state
-    test_http_errors = Endpoints.test_http_errors
-    test_unknown_and_malformed_commands = Endpoints.test_unknown_and_malformed_commands
-    test_select_next_prev = Commands.test_select_next_prev
-    test_set_any_target_not_in_player_json = Commands.test_set_any_target_not_in_player_json
-    test_set_unresolved_macro_is_not_found = Commands.test_set_unresolved_macro_is_not_found
-    test_reset = Commands.test_reset
-    test_params_list = Commands.test_params_list
-    test_bundle_commands = Commands.test_bundle_commands
-    test_stage_gated_commands = Commands.test_stage_gated_commands
+    test_stream_starts_with_state = contract.Endpoints.test_stream_starts_with_state
+    test_http_errors = contract.Endpoints.test_http_errors
+    test_unknown_and_malformed_commands = contract.Endpoints.test_unknown_and_malformed_commands
+    test_select_next_prev = contract.Commands.test_select_next_prev
+    test_set_any_target_not_in_player_json = contract.Commands.test_set_any_target_not_in_player_json
+    test_set_unresolved_macro_is_not_found = contract.Commands.test_set_unresolved_macro_is_not_found
+    test_reset = contract.Commands.test_reset
+    test_params_list = contract.Commands.test_params_list
+    test_bundle_commands = contract.Commands.test_bundle_commands
+    test_stage_gated_commands = contract.Commands.test_stage_gated_commands
 
     async def test_real_param_and_mod_amount(self):
         await self.ok(type="select", index=5)
