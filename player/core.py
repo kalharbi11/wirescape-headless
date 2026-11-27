@@ -22,7 +22,7 @@ from . import API_VERSION, VERSION, bundle as B, state as S, taper
 from .catalogue import Catalogue
 from .check import check as check_bundle, ERROR, WARNING
 from .engine import AdapterFactory
-from scripting.wsrun import Script, ScriptError, resolve_script
+from scripting.wsrun import Script, ScriptError, resolve_script, print_config
 
 RESTART_INITIAL = 0.25
 RESTART_MAX = 30.0
@@ -406,7 +406,7 @@ class PlayerCore:
             meta = {"name": control.get("label", v["control"]), "minimum": lo, "maximum": hi,
                     "default": default, "step": step, "unit": "", "taper": "linear", "decimals": 2}
             if choices is not None:
-                meta["choices"] = choices
+                meta["choices"] = [{"value": i, "label": label} for i, label in enumerate(choices)]
             return {"form": form, "key": f"script:{v['file']}:{v['control']}", "meta": meta,
                     "module": None, "script": script, "control": v["control"], "script_kind": kind}
         return None
@@ -555,7 +555,7 @@ class PlayerCore:
         if r["script_kind"] == "toggle":
             return bool(value)
         if r["script_kind"] == "dropdown":
-            return r["meta"]["choices"][int(value)]
+            return r["meta"]["choices"][int(value)]["label"]
         return value
 
     async def _stop_scripts(self) -> None:
@@ -578,10 +578,19 @@ class PlayerCore:
                 path = resolve_script(root, str(rel))
                 script = Script(path, config.get("port", 9000), on_change=self._script_changed)
                 self.scripts[file] = script
+                # Read declared ranges without blocking the engine status loop.
+                # A script with no declaration still runs under supervision.
+                try:
+                    script.declaration = await asyncio.to_thread(print_config, path)
+                except ScriptError as exc:
+                    self._script_warnings.append(f"script {file}: {exc}")
                 prefix = f"script:{file}:"
                 for key, value in self.values.get(entry.index, {}).items():
                     if key.startswith(prefix):
-                        script.values[key[len(prefix):]] = value
+                        cid = key[len(prefix):]
+                        r = self._resolve({"script": {"file": file, "control": cid}})
+                        if r:
+                            script.values[cid] = self._script_wire_value(r, taper.quantize(r["meta"], value))
                 await script.start()
             except (OSError, ValueError, ScriptError) as exc:
                 self._script_warnings.append(f"script {file}: {exc}")

@@ -84,7 +84,7 @@ class PlayerScripts(unittest.IsolatedAsyncioTestCase):
 
     async def test_pg4_restart_replays_values_and_releases_gates(self):
         await self.cmd(type="select", index=5)
-        await self.wait(lambda s: s["controls"]["dens"]["resolved"])
+        await self.wait(lambda s: s["controls"]["dens"]["resolved"] and s["scripts"][0]["state"] == "running")
         await self.cmd(type="set", control="dens", value=1.5)
         await self.receive("/test/value", .75)
         await self.receive("/test/gate", 1)

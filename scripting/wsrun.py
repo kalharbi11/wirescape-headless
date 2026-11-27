@@ -147,7 +147,10 @@ class Script:
         self._want = False
         if self._task:
             if self._spawning is not None:
-                await asyncio.shield(self._spawning)
+                try:
+                    await asyncio.shield(self._spawning)
+                except OSError:
+                    pass
             self._task.cancel()
             try:
                 await self._task
@@ -201,6 +204,19 @@ class Script:
             self._spawning = loop.create_task(self._spawn())
             try:
                 self.proc = await asyncio.shield(self._spawning)
+            except OSError as exc:
+                self.proc = None
+                self.last_exit = None
+                log.warning("%s: spawn failed: %s", self.path.name, exc)
+                if not self._want:
+                    return
+                self.restarts += 1
+                self._set("crashed")
+                delay, self._delay = self._delay, min(RESTART_MAX, self._delay * 2)
+                self.delays.append(delay)
+                self._set("restarting")
+                await asyncio.sleep(delay)
+                continue
             finally:
                 self._spawning = None
             self._started_at = self._heartbeat = self.clock()
