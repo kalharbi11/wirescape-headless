@@ -13,7 +13,7 @@ from player.server import ApiServer
 from player.state import StateStore
 from tests import apiclient as api
 from tests.helpers import TempBundle
-from tests.test_api import V
+from tests.test_api import V, Endpoints, Commands
 
 
 class RealEngine(unittest.IsolatedAsyncioTestCase):
@@ -65,12 +65,59 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
         V["state"].validate(doc)
         return doc
 
-    async def ok(self, **cmd):
+    async def cmd(self, **cmd):
         V["command"].validate(cmd)
         reply = await api.command(self.port, cmd)
         V["reply"].validate(reply)
+        return reply
+
+    async def ok(self, **cmd):
+        reply = await self.cmd(**cmd)
         self.assertTrue(reply["ok"], reply)
         return reply["result"]
+
+    # Execute the same API contract cases used against the fake. Cases that
+    # inspect fake internals or require the not-yet-pinned controller stream
+    # are covered by real-engine witnesses separately.
+    test_stream_starts_with_state = Endpoints.test_stream_starts_with_state
+    test_http_errors = Endpoints.test_http_errors
+    test_unknown_and_malformed_commands = Endpoints.test_unknown_and_malformed_commands
+    test_select_next_prev = Commands.test_select_next_prev
+    test_set_any_target_not_in_player_json = Commands.test_set_any_target_not_in_player_json
+    test_set_unresolved_macro_is_not_found = Commands.test_set_unresolved_macro_is_not_found
+    test_reset = Commands.test_reset
+    test_params_list = Commands.test_params_list
+    test_bundle_commands = Commands.test_bundle_commands
+    test_stage_gated_commands = Commands.test_stage_gated_commands
+
+    async def test_real_param_and_mod_amount(self):
+        await self.ok(type="select", index=5)
+        r = await self.ok(type="set", control="cutoff", value=1234)
+        self.assertEqual(r["key"], "param:2:cutoff")
+        r = await self.ok(type="set", control="wob", norm=1.0)
+        self.assertEqual(r["value"], 1)
+        self.assertEqual((await self.state())["controls"]["cutoff"]["value"], 1234)
+        self.assertEqual((await self.state())["controls"]["wob"]["value"], 1)
+
+    async def test_real_device_off_contract(self):
+        for kind in ("audio", "midi"):
+            result = await self.ok(type=kind + ".devices")
+            self.assertIsInstance(result["devices"], list)
+        # Configuration-only rate and block size with the null sink.
+        await self.ok(type="audio.buffer", frames=128)
+        await self.ok(type="audio.rate", hz=44100)
+        # Never select or enable an actual device in CI.
+        r = await self.cmd(type="audio.select", deviceId="missing")
+        self.assertFalse(r["ok"], r)
+        await self.ok(type="panic")
+
+    async def test_real_engine_restart_command(self):
+        old = self.engines[-1]
+        await self.ok(type="engine.restart")
+        await self.until(lambda s: s["engine"]["restarts"] == 1 and s["engine"]["state"] == "running"
+                         and len(self.engines) == 2 and not s["current"]["switching"]
+                         and any(c["type"] == "loadGraph" for c in self.engines[-1].commands))
+        self.assertNotEqual(self.engines[-1].pid, old.pid)
 
     async def until(self, predicate, timeout=10):
         deadline = asyncio.get_running_loop().time() + timeout

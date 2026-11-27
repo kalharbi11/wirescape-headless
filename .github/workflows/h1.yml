@@ -43,7 +43,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/build-engine
+      - name: Catalogue parity with actual pinned hello
+        run: python tools/catalogue.py "$WIRESCAPE_ENGINE" --check --observed "$RUNNER_TEMP/catalogue-observed.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: catalogue-${{ matrix.os }}
+          path: ${{ runner.temp }}/catalogue-observed.json
+          if-no-files-found: warn
       - name: Real engine acceptance (null audio)
+        if: always() && env.WIRESCAPE_ENGINE != ''
         run: python -m unittest discover -s tests/integration -p 'test_*.py' -v
   ui:
     needs: scope
