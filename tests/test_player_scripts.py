@@ -20,11 +20,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ws
 gate = ws.gate("Gate", address="/test/gate")
 density = ws.knob("Density", 0, 2, 0.5)
+enabled = ws.toggle("Enabled", False)
+mode = ws.dropdown("Mode", ["A", "B"], "A")
+number = ws.number("Number", -2, 2, 0, step=0.5)
 cv = ws.cv("Value", address="/test/value", out_min=0, out_max=2)
+toggle_cv = ws.cv("Toggle", address="/test/toggle")
+mode_cv = ws.cv("Mode", address="/test/mode")
+number_cv = ws.cv("Number", address="/test/number")
 ws.start()
 while True:
     gate.on()
     cv.send(density.value / 2)
+    toggle_cv.send(float(enabled.value))
+    mode_cv.send(float(mode.value == "B"))
+    number_cv.send((number.value + 2) / 4)
     ws.sleep(.05)
 """
 
@@ -112,3 +121,21 @@ class PlayerScripts(unittest.IsolatedAsyncioTestCase):
         await self.cmd(type="script.restart", file=file)
         await self.wait(lambda s: s["scripts"][0]["state"] == "running")
         self.assertEqual((await self.state())["engine"]["restarts"], 0)
+
+    async def test_typed_numeric_script_controls_and_replay(self):
+        await self.cmd(type="select", index=5)
+        await self.wait(lambda s: s["scripts"][0]["state"] == "running")
+        file = "scripts/probe.py"
+        for cid, value, expected, address in (
+            ("enabled", 1, 1, "/test/toggle"),
+            ("mode", 1, 1, "/test/mode"),
+            ("number", 0.8, 1, "/test/number"),
+        ):
+            result = await self.cmd(type="set", target={"script": {"file": file, "control": cid}}, value=value)
+            self.assertEqual(result["value"], expected)
+            await self.receive(address, .75 if cid == "number" else 1)
+        await self.cmd(type="fake.inject", what="scriptCrash")
+        await self.receive("/test/gate", 0)
+        await self.wait(lambda s: s["scripts"][0]["restarts"] >= 1 and s["scripts"][0]["state"] == "running")
+        for address, value in (("/test/toggle", 1), ("/test/mode", 1), ("/test/number", .75)):
+            await self.receive(address, value)
