@@ -24,13 +24,26 @@ Tasks are GitHub issues labelled `task`. Nobody is assigned: any agent session t
    `status/blocked` on the task.
 
 ## Bundles
-Bundles A–F are merged (H-0…H-11; #11 closed by A108). The open work, in order (Architect, 2026-11-26):
+Updated by the lead at the owner's request, 2026-11-27. Bundles A–H are complete except
+the explicitly separated H-12 task in I. Claims live on issues; nobody is assigned a new bundle in advance.
 
-| Bundle | Tasks | Needs merged first | Notes |
+| Bundle | Tasks in order | Start / qualification gates | Status |
 |---|---|---|---|
-| **H** (now) | H-13 [#24](https://github.com/kalharbi11/wirescape-headless/issues/24) Pi engine build + hardware smoke runbook · H-11a [#25](https://github.com/kalharbi11/wirescape-headless/issues/25) script buttons (A108) · H-14 [#26](https://github.com/kalharbi11/wirescape-headless/issues/26) pin bump to P1-e | H-13, H-11a: none. H-14: lab [#672](https://github.com/kalharbi11/wirescape-lab/issues/672) P1-e on lab `main` | **The early hardware test point:** the owner builds on the Pi and runs `HARDWARE_SMOKE.md`. P1-e merged at `992d599`; H-14 uses the mapped-parameter witness under A113 |
-| **G** | H-G [#15](https://github.com/kalharbi11/wirescape-headless/issues/15) guides | H-7, H-10 (merged) | free now; may run in parallel with H; SCRIPTING cites the H-11a button semantics once that merges |
-| **I** (later) | H-12 [#14](https://github.com/kalharbi11/wirescape-headless/issues/14) soak protocol + the P1-e2 pin bump | H-14, lab P1-e2 (control OSC port), the owner's first smoke result | moved out of G: soak waits on OSC stability and a first hardware run |
+| **I: owner soak** | H-12 [#14](https://github.com/kalharbi11/wirescape-headless/issues/14), existing PR [#32](https://github.com/kalharbi11/wirescape-headless/pull/32) | Existing draft-ahead only. Qualification waits on P1-e2 pin (J1), recorded first owner smoke, exact-head CI and independent review. | Already claimed; preserve its branch and correction history. |
+| **J: pin and knob evidence** | H-15 [#35](https://github.com/kalharbi11/wirescape-headless/issues/35) → H-16 [#36](https://github.com/kalharbi11/wirescape-headless/issues/36) | Pin task available now: P1-e2 and follow-up #715 are on lab main. Collector follows pin merge; complete latency qualification additionally needs the lab's eight-controller source (lab #711) and owner Pi run. | **Unassigned; any session may claim.** |
+| **K: UI cost evidence** | H-17 [#37](https://github.com/kalharbi11/wirescape-headless/issues/37) | Tooling/protocol available now in paths separate from I/J. Actual H-f2 result requires the owner Pi run. | **Unassigned; any session may claim.** |
+
+**Completed:** H-13 #24, H-11a #25, H-14 #26 and guides #15 are closed; do not reclaim them.
+Current pin is P1-e `992d599`; P1-e2 merged upstream but is not pinned here.
+Lab #326 is closed after the post-fix soak; no new #326 fix is needed.
+The first owner's smoke result was not established by this check: keep it an explicit prerequisite,
+never infer hardware success from H1.
+
+**Writer boundaries.** J1 is the sole LAB_PIN writer; changes beyond the pin are only forced fixes
+and the regenerated catalogue. J2 owns its new latency helper/tests and KNOB_LATENCY guide.
+K owns its separate UI-cost helper/tests and UI_COST guide. Neither edits I's open PG10
+recorder/runbook. One task/branch/PR each, tests first, exact-head H0/H1 plus different-session review.
+A collector may ship useful device-off tooling while reporting its real measurement as unavailable.
 
 **Early hardware test path:** H-13 → the owner runs the smoke test (device-off, then consent) → lab P1-e → H-14 →
 the owner re-runs the MIDI-controller steps. Soak, latency and UI-cost facts (H-f1–H-f3) stay unmeasured until bundle I.
@@ -43,10 +56,12 @@ unmeasured until bundle I's separate lab workload extension (100 CC/s across eig
 
 **One PR, three tasks (2026-11-26):** H-0, H-1 and H-2 went into one PR, because this session may push to only one branch. Later tasks use one PR each.
 
-**Parallelism:** H-13, H-11a and H-G can run at once. The Player-on-hardware path is
-P0 → P1-e → H-14 → H-f1 (0025 §6.1).
+**Parallelism:** J's pin integration and K's UI analysis may run together in their named paths.
+I remains on its existing PR. No automatic H2 dispatch or agent device run is authorized.
 
-**Labels:** `task`, `bundle/A`…`bundle/I`, `status/open` → `status/claimed` → `status/review` → closed;
+**Labels:** `task`, existing bundle labels where available, `status/open` → `status/claimed` → `status/review` → closed;
 `status/blocked` when a lab change is needed.
 
 Signed: claude-architect, 2026-11-26
+
+Signed: codex-lead, 2026-11-27, 13:56 EST
