@@ -244,9 +244,10 @@ class RealEngine(unittest.IsolatedAsyncioTestCase):
             await self.until(lambda s: any(route["port"] == port and route["state"] == "listening"
                                           for route in s["osc"]["routes"]))
             def padded(value):
-                raw = value.encode() + b"\\0"
-                return raw + b"\\0" * (-len(raw) % 4)
+                raw = value.encode() + bytes(1)
+                return raw + bytes(1) * (-len(raw) % 4)
             packet = padded("/h14/witness") + padded(",f") + struct.pack(">f", .5)
+            self.assertEqual(packet, b"/h14/witness" + bytes(4) + b",f" + bytes(2) + struct.pack(">f", .5))
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
                 sender.sendto(packet, ("127.0.0.1", port))
             async with asyncio.timeout(5):
