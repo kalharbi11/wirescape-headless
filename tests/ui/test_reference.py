@@ -81,12 +81,14 @@ class ReferenceUI(unittest.TestCase):
         expect(self.page.locator("pre[data-detail=Engine]")).to_contain_text(f'"restarts": {before + 1}', timeout=10000)
         expect(self.page.get_by_role("status")).to_contain_text("running", timeout=10000)
 
-    def test_script_unavailable_is_visible(self):
+    def test_script_restart_is_available(self):
         self.command({"type": "select", "index": 5})
         expect(self.page.get_by_role("status")).to_contain_text("Black ice choir")
         self.menu("Scripts")
-        self.page.get_by_role("button", name="Restart script").click()
-        expect(self.page.get_by_role("alert")).to_contain_text("unavailable")
+        with self.page.expect_response(lambda r: r.url.endswith("/command") and r.request.post_data_json.get("type") == "script.restart") as reply:
+            self.page.get_by_role("button", name="Restart script").click()
+        self.assertTrue(reply.value.json()["ok"])
+        expect(self.page.locator("#error")).to_be_empty()
 
 
 if __name__ == "__main__":

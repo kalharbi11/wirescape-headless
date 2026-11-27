@@ -186,6 +186,7 @@ class Commands(Base):
 
     async def test_set_script_control_stores_value(self):
         await self.ok(type="select", index=5)
+        await self.wait(lambda s: s["controls"]["dens"]["resolved"])
         r = await self.ok(type="set", control="dens", value=0.7)
         self.assertEqual(r["key"], "script:scripts/generative_ws.py:density")
 
@@ -238,7 +239,7 @@ class Commands(Base):
 
     async def test_stage_gated_commands(self):
         for t in ("script.start", "script.stop", "script.restart"):
-            self.assertEqual((await self.cmd(type=t, file="scripts/generative_ws.py"))["code"], "unavailable")
+            self.assertEqual((await self.cmd(type=t, file="scripts/generative_ws.py"))["code"], "not-found")
         self.assertEqual((await self.cmd(type="config.put", json={}))["code"], "unavailable")
         self.assertEqual((await self.ok(type="config.get"))["json"]["format"], "wirescape.player")
 
