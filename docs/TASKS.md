@@ -4,24 +4,34 @@
 Tasks are GitHub issues labelled `task`. Nobody is assigned: any agent session takes the next free
 **bundle**, which is two or so tasks sized for one long run. Design: lab `proposals/0025` §6.2.
 
-**Trigger:** `headless: run`. No other instruction is needed. Follow the steps below.
+**Triggers:** `headless: run`, or `1:run` through `5:run` for the corresponding builder session.
+All sessions use this same pool; numbers do not assign bundles. Follow the steps below.
 
 ## A run, step by step
-1. **Review first.** For each open PR labelled `status/review` that another session wrote, read the diff
-   against the [AGENTS.md](../AGENTS.md) checklist. Then comment `Reviewed <sha7>: ok` or list what must
-   change. If it is ok and `H0 gate` and `H1 gate` are green on that head, squash-merge it and close its
-   issue. Docs-only PRs need only the review.
-2. **Claim a bundle.** Take the first bundle in the table whose dependencies are merged and which has no
-   `status/claimed` issue. Comment `Claimed by <session>, <date>` on each of its issues and switch them from
-   `status/open` to `status/claimed`. A claim with no push for 48 h is free again.
-3. **Work.** One branch and one PR per task (`Closes #n`, task ID in the title), with the failing test
-   first. Post the handoff (AGENTS.md) and set `status/review`. Then go on to the bundle's next task. A task
-   whose dependency is only *in review* may start on a branch made from that PR's branch. Rebase it after
-   the dependency merges.
-4. **Keep going** while budget remains: corrections, then the next free bundle. Stop only when everything
-   free waits on a review or a lab change, and leave one comment on your last PR saying so.
-5. **Blocked by the lab?** File a lab issue labelled `limitation found` (AGENTS rule 11), link it, and set
-   `status/blocked` on the task.
+1. **Read and resume first.** Read AGENTS.md, this queue and your task issue. Check your active
+   PR's current head, actual H0/H1 jobs/logs, review and latest handoff before taking more work.
+   Use connected GitHub tools and Actions; shell clone/DNS failure alone is not a blocker.
+2. **Review first when practical.** For an eligible `status/review` PR another session wrote,
+   use the AGENTS checklist and comment `Reviewed <sha7>: ok` or required corrections.
+   Merge only under the existing H0/H1 and independent-review rules; docs-only needs the review.
+3. **Claim one free bundle.** Verify dependencies and writer paths first. Comment
+   `Claimed: <session>; <date>; branch: <branch>` on its next open task issue and change
+   `status/open` to `status/claimed`. No permanent assignment. Before taking over an old claim,
+   inspect its branch, PR and latest handoff; 48 h without a push is a reason to check, not permission
+   to overwrite active work.
+4. **One open PR per bundle.** One task issue, one branch and one PR, task ID in title and
+   `Closes #N` in body; tests first. Start the next task from current main after its predecessor
+   merges. Draft-ahead only when explicitly authorized on the issue; existing H-12 #32 is a
+   bounded exception. Stay in your named paths; serialize LAB_PIN bumps and overlapping files.
+5. **Verify and hand off.** Post the AGENTS handoff with exact head and actual job evidence;
+   set `status/review` only when ready. A green draft H1 gate may mean skipped engine/UI jobs.
+   Correct failures on the same PR, then continue your bundle as its gates permit.
+   H2 only on owner request; no hardware result is inferred from hosted CI.
+6. **Lab dependency or stop.** Follow AGENTS rule 11 for a lab gap; reuse an existing issue when it
+   covers the gap and link it here. On stopping, leave `handoff-ready` or `blocked: <dependency>`
+   plus exact next actions; remove your claim and return to `status/open` or `status/blocked`.
+   Preserve branch/PR history and never create a competing implementation.
+
 
 ## Bundles
 Updated by the lead at the owner's request, 2026-11-27. Bundles A–H are complete except
@@ -46,13 +56,13 @@ recorder/runbook. One task/branch/PR each, tests first, exact-head H0/H1 plus di
 A collector may ship useful device-off tooling while reporting its real measurement as unavailable.
 
 **Early hardware test path:** H-13 → the owner runs the smoke test (device-off, then consent) → lab P1-e → H-14 →
-the owner re-runs the MIDI-controller steps. Soak, latency and UI-cost facts (H-f1–H-f3) stay unmeasured until bundle I.
+the owner re-runs the MIDI-controller steps. Soak, latency and UI-cost facts (H-f1–H-f3) stay unmeasured until their respective owner runs.
 
 **A113 (2026-11-27):** Macro row: deferred to the MOD-5 pin (A113). The first pin after
 [wirescape-test MOD-5 #8](https://github.com/kalharbi11/wirescape-test/issues/8) promotion must prove
 CC → Macro → `values` with the real engine; [lab #711](https://github.com/kalharbi11/wirescape-lab/issues/711)
 tracks that row. H-14's mapped raw-parameter witness is accepted for early hardware smoke. H-f1 stays
-unmeasured until bundle I's separate lab workload extension (100 CC/s across eight continuous controllers).
+unmeasured until J's collector, the separate lab workload extension and the owner run are ready (100 CC/s across eight continuous controllers).
 
 **One PR, three tasks (2026-11-26):** H-0, H-1 and H-2 went into one PR, because this session may push to only one branch. Later tasks use one PR each.
 
@@ -65,3 +75,6 @@ I remains on its existing PR. No automatic H2 dispatch or agent device run is au
 Signed: claude-architect, 2026-11-26
 
 Signed: codex-lead, 2026-11-27, 13:56 EST
+
+Run/claim guidance aligned with the workshop; H0/H1/H2 remain unchanged.
+Signed: codex-lead, 2026-11-27, 14:01 EST
