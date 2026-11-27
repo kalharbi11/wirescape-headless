@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
-import copy
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 import unittest
 
-from tools.ui_cost import analyze, tree_rss
+from tools.ui_cost import analyze, members, kiosk_sample, tree_rss
 
 
 def samples(ui):
@@ -68,6 +70,7 @@ class UICostTests(unittest.TestCase):
     def test_missing_and_incomplete_evidence(self):
         for modify in (
             lambda d: d.pop("baseline"),
+            lambda d: d["ui"].update(collection_error="interrupted"),
             lambda d: d["ui"]["samples"].pop(),
             lambda d: d["ui"]["samples"].pop(5),
             lambda d: d["ui"]["samples"][5].pop("dropouts"),
@@ -103,3 +106,29 @@ class UICostTests(unittest.TestCase):
         self.assertEqual(tree_rss(samples(True)[0]["processes"]), 250000000)
         self.assertIsNone(tree_rss([{"pid": 1, "start": 1, "rss_bytes": None}]))
         self.assertIsNone(tree_rss([]))
+
+    def test_recursive_membership_and_recycled_pid_during_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            group = root / "kiosk"
+            child = group / "child"
+            child.mkdir(parents=True)
+            (group / "cgroup.procs").write_text("100\n")
+            (child / "cgroup.procs").write_text("101\n")
+            (group / "cpu.stat").write_text("usage_usec 1000\n")
+            self.assertEqual(members(group), {100, 101})
+            props = {"ActiveState": "active", "InvocationID": "test",
+                     "ControlGroup": "/kiosk", "MainPID": "100"}
+            first = {"pid": 100, "start": 1, "rss_bytes": 10}
+            second = {"pid": 101, "start": 2, "rss_bytes": 20}
+            with patch("tools.ui_cost.CGROUP", root), \
+                 patch("tools.ui_cost.unit_properties", return_value=props), \
+                 patch("tools.ui_cost.process_sample",
+                       side_effect=[first, second, first, second]):
+                self.assertEqual(tree_rss(kiosk_sample(True)["processes"]), 30)
+            with patch("tools.ui_cost.CGROUP", root), \
+                 patch("tools.ui_cost.unit_properties", return_value=props), \
+                 patch("tools.ui_cost.process_sample",
+                       side_effect=[first, second, first, {**second, "start": 3}]):
+                with self.assertRaisesRegex(ValueError, "membership changed"):
+                    kiosk_sample(True)
