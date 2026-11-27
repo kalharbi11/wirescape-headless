@@ -213,6 +213,9 @@
     },
     "key": {
      "type": "string"
+    },
+    "momentary": {
+     "type": "boolean"
     }
    },
    "required": [
